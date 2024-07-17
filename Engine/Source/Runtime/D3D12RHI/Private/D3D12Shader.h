@@ -50,6 +50,10 @@ public:
 	int32 Offset;
 
 	FShaderCodePackedResourceCounts ResourceCounts;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	TArray<const void*> NvidiaShaderExtensions;
+	// NVCHANGE_END: Add VXGI
 };
 
 class FD3D12GeometryShader : public FRHIGeometryShader
@@ -73,6 +77,10 @@ public:
 	bool bShaderNeedsStreamOutput;
 
 	FShaderCodePackedResourceCounts ResourceCounts;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	TArray<const void*> NvidiaShaderExtensions;
+	// NVCHANGE_END: Add VXGI
 
 	FD3D12GeometryShader()
 		: bShaderNeedsStreamOutput(false)
@@ -112,6 +120,10 @@ public:
 	TArray<uint8> Code;
 
 	FShaderCodePackedResourceCounts ResourceCounts;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	TArray<const void*> NvidiaShaderExtensions;
+	// NVCHANGE_END: Add VXGI
 };
 
 class FD3D12DomainShader : public FRHIDomainShader
@@ -128,6 +140,10 @@ public:
 	TArray<uint8> Code;
 
 	FShaderCodePackedResourceCounts ResourceCounts;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	TArray<const void*> NvidiaShaderExtensions;
+	// NVCHANGE_END: Add VXGI
 };
 
 class FD3D12PixelShader : public FRHIPixelShader
@@ -144,6 +160,10 @@ public:
 	FD3D12ShaderResourceTable ShaderResourceTable;
 
 	FShaderCodePackedResourceCounts ResourceCounts;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	TArray<const void*> NvidiaShaderExtensions;
+	// NVCHANGE_END: Add VXGI
 };
 
 class FD3D12ComputeShader : public FRHIComputeShader

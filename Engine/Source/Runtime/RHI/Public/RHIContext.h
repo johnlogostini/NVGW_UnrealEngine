@@ -16,6 +16,9 @@
 #include "Math/ScaleMatrix.h"
 #include "Math/Float16Color.h"
 #include "Modules/ModuleInterface.h"
+// NvFlow begin
+#include "GameWorks/RHINvFlow.h"
+// NvFlow end
 
 class FRHIDepthRenderTargetView;
 class FRHIRenderTargetView;
@@ -545,6 +548,26 @@ public:
 
 	virtual void RHIUpdateTextureReference(FTextureReferenceRHIParamRef TextureRef, FTextureRHIParamRef NewTexture) = 0;
 
+	// NvFlow begin
+	virtual void NvFlowGetDeviceDesc(FRHINvFlowDeviceDesc* desc) {}
+	virtual void NvFlowGetDepthStencilViewDesc(FTexture2DRHIParamRef depthSurface, FTexture2DRHIParamRef depthTexture, FRHINvFlowDepthStencilViewDesc* desc) {}
+	virtual void NvFlowGetRenderTargetViewDesc(FRHINvFlowRenderTargetViewDesc* desc) {}
+	virtual FShaderResourceViewRHIRef NvFlowCreateSRV(const FRHINvFlowResourceViewDesc* desc) { return FShaderResourceViewRHIRef(); }
+	virtual FRHINvFlowResourceRW* NvFlowCreateResourceRW(const FRHINvFlowResourceRWViewDesc* desc, FShaderResourceViewRHIRef* pRHIRefSRV, FUnorderedAccessViewRHIRef* pRHIRefUAV) { return nullptr; }
+	virtual void NvFlowReleaseResourceRW(FRHINvFlowResourceRW*) {}
+	virtual void NvFlowReserveDescriptors(FRHINvFlowDescriptorReserveHandle* dstHandle, uint32 numDescriptors, uint64 lastFenceCompleted, uint64 nextFenceValue) {}
+	
+	virtual void NvFlowRestoreState() {}
+	FRHINvFlowCleanup NvFlowCleanup;
+	virtual void NvFlowWork(void(*workFunc)(void*,SIZE_T,IRHICommandContext*), void* paramData, SIZE_T numBytes)
+	{
+		if (workFunc)
+		{
+			workFunc(paramData, numBytes, this);
+		}
+	}
+	// NvFlow end	
+	
 	virtual TRefCountPtr<FRHIRenderPass> RHIBeginRenderPass(const FRHIRenderPassInfo& InInfo, const TCHAR* InName)
 	{
 		// Fallback...
@@ -598,4 +621,37 @@ public:
 	{
 		RHICopyToResolveTarget(SourceTexture, DestTexture, true, ResolveParams);
 	}
+	
+	// WaveWorks Start
+	virtual const TArray<WaveWorksShaderInput>* RHIGetWaveWorksShaderInput() { return nullptr; }
+	virtual const TArray<WaveWorksShaderInput>* RHIGetWaveWorksQuadTreeShaderInput() { return nullptr; }
+	virtual FWaveWorksRHIRef RHICreateWaveWorks(const struct GFSDK_WaveWorks_Simulation_Settings& Settings, const struct GFSDK_WaveWorks_Simulation_Params& Params) { return nullptr; }
+	virtual void RHISetWaveWorksState(FWaveWorksRHIParamRef State, const FMatrix& ViewMatrix, const TArray<uint32>& ShaderInputMappings) {}
+	// WaveWorks End
+
+	// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+	virtual void RHIRenderHBAO(
+		const FTextureRHIParamRef SceneDepthTextureRHI,
+		const FMatrix& ProjectionMatrix,
+		const FTextureRHIParamRef SceneNormalTextureRHI,
+		const FMatrix& ViewMatrix,
+		const FTextureRHIParamRef SceneColorTextureRHI,
+		const GFSDK_SSAO_Parameters& AOParams)
+	{
+		checkNoEntry();
+	}
+#endif
+	// NVCHANGE_END: Add HBAO+
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	virtual void RHIVXGICleanupAfterVoxelization() { checkNoEntry(); }
+
+	virtual void RHISetViewportsAndScissorRects(uint32 Count, const FViewportBounds* Viewports, const FScissorRect* ScissorRects) { checkNoEntry(); }
+	virtual void RHIDispatchIndirectComputeShaderStructured(FStructuredBufferRHIParamRef ArgumentBuffer, uint32 ArgumentOffset) { checkNoEntry(); }
+	virtual void RHICopyStructuredBufferData(FStructuredBufferRHIParamRef DestBuffer, uint32 DestOffset, FStructuredBufferRHIParamRef SrcBuffer, uint32 SrcOffset, uint32 DataSize) { checkNoEntry(); }
+	virtual void RHIExecuteVxgiRenderingCommand(NVRHI::IRenderThreadCommand* pCommand) { checkNoEntry(); }
+#endif
+	// NVCHANGE_END: Add VXGI
 };

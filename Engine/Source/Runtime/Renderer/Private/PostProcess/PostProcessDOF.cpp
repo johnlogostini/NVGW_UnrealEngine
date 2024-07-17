@@ -488,6 +488,21 @@ void FRCPassPostProcessDOFRecombine::Process(FRenderingCompositePassContext& Con
 		Context.HasHmdMesh(),
 		EDRF_UseTriangleOptimization);
 
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	if (GNVVolumetricLightingRHI && GNVVolumetricLightingRHI->IsRendering() && bSeparateTranslucency)
+	{
+		NvVl::PostprocessDesc* PostprocessDesc = GNVVolumetricLightingRHI->GetSeparateTranslucencyPostprocessDesc();
+		if (PostprocessDesc)
+		{
+			SCOPED_DRAW_EVENT(Context.RHICmdList, VolumetricLightingApplyLighting);
+			SCOPED_GPU_STAT(Context.RHICmdList, Stat_GPU_ApplyLighting);
+			PostprocessDesc->eStereoPass = (NvVl::StereoscopicPass)View.StereoPass;
+			Context.RHICmdList.ApplyLighting(DestRenderTarget.TargetableTexture, *PostprocessDesc);
+		}
+	}
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 
 	Context.RHICmdList.CopyToResolveTarget(DestRenderTarget.TargetableTexture, DestRenderTarget.ShaderResourceTexture, false, FResolveParams());
 }

@@ -180,6 +180,10 @@ float4 AmbientOcclusionSetupParams;
 // 
 float4 NoiseScale;
 
+// NVCHANGE_BEGIN: Add VXGI
+float VxaoIntensity;
+// NVCHANGE_END: Add VXGI
+
 /** RGBA8 linear texture containing random normals */
 Texture2D RandomNormalTexture;
 SamplerState RandomNormalTextureSampler;
@@ -839,6 +843,16 @@ void MainPSandCS(in float4 UVAndScreenPos, float4 SvPosition, out float4 OutColo
 //		OutColor = (WeightA - 0.333f) / 0.666f;
 	}
 #endif
+
+// NVCHANGE_BEGIN: Add VXGI
+#if USE_AO_SETUP_AS_INPUT == 0
+	if(VxaoIntensity > 0.0)
+	{
+		float4 VxgiDiffuse = GetScreenSpaceData(UV).VxgiDiffuse;
+		OutColor *= lerp(1.0, VxgiDiffuse.r, VxaoIntensity * VxgiDiffuse.a);
+	}
+#endif
+// NVCHANGE_END: Add VXGI
 }
 
 void MainPS(in noperspective float4 UVAndScreenPos : TEXCOORD0, float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)

@@ -21,6 +21,12 @@
 #include "UObject/DebugSerializationFlags.h"
 #endif
 
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+#include "GFSDK_VXGI.h"
+#endif
+// NVCHANGE_END: Add VXGI
+
 class FGlobalShaderType;
 class FMaterialShaderType;
 class FNiagaraShaderType;
@@ -41,7 +47,7 @@ class FShaderResourceId
 {
 public:
 
-	FShaderResourceId() {}
+	FShaderResourceId() { SpecificShaderTypeName = nullptr; }
 
 	FShaderResourceId(const FShaderCompilerOutput& Output, const TCHAR* InSpecificShaderTypeName) :
 		Target(Output.Target),
@@ -225,6 +231,17 @@ public:
 		UncompressCode(OutCode);
 	}
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	VXGI::IUserDefinedShaderSet* GetVxgiVoxelizationPixelShaderSet();
+	//This works on VS or DS if they are compiled with the right flag
+	VXGI::IUserDefinedShaderSet* GetVxgiVoxelizationGeometryShaderSet();
+	VXGI::IUserDefinedShaderSet* GetVxgiConeTracingPixelShaderSet();
+
+	const TArray<FShaderParameterMap>& GetParameterMapsForVxgiPS() const { return ParameterMapForVxgiPSPermutation; }
+#endif
+	// NVCHANGE_END: Add VXGI
+
 private:
 	// compression functions
 	void UncompressCode(TArray<uint8>& UncompressedCode) const;
@@ -241,6 +258,19 @@ private:
 	FDomainShaderRHIRef DomainShader;
 	FGeometryShaderRHIRef GeometryShader;
 	FComputeShaderRHIRef ComputeShader;
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	VXGI::IUserDefinedShaderSet* VxgiVoxelizationPixelShader;
+	VXGI::IUserDefinedShaderSet* VxgiVoxelizationGeometryShader;
+	VXGI::IUserDefinedShaderSet* VxgiConeTracingPixelShader;
+	bool bIsVxgiPS;
+	TArray<FShaderParameterMap> ParameterMapForVxgiPSPermutation;
+	TArray<TArray<uint8> > ShaderResouceTableVxgiPSPermutation;
+	TArray<bool> UsesGlobalCBForVxgiPSPermutation;
+	TArray<uint8> VxgiGSCode;
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	/** Target platform and frequency. */
 	FShaderTarget Target;
@@ -568,6 +598,11 @@ public:
 	{
 		return Resource->GetVertexShader();
 	}
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	virtual // We need to make GetPixelShader virtual to override it in TVXGIVoxelizationShaderPermutationPS
+#endif
+	// NVCHANGE_END: Add VXGI
 	/** @return the shader's pixel shader */
 	inline const FPixelShaderRHIParamRef GetPixelShader()
 	{
@@ -593,6 +628,24 @@ public:
 	{
 		return Resource->GetComputeShader();
 	}
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	VXGI::IUserDefinedShaderSet* GetVxgiVoxelizationPixelShaderSet()
+	{
+		return Resource->GetVxgiVoxelizationPixelShaderSet();
+	}
+	//This works on VS or DS if they are compiled with the right flag
+	VXGI::IUserDefinedShaderSet* GetVxgiVoxelizationGeometryShaderSet()
+	{
+		return Resource->GetVxgiVoxelizationGeometryShaderSet();
+	}
+	VXGI::IUserDefinedShaderSet* GetVxgiConeTracingPixelShaderSet()
+	{
+		return Resource->GetVxgiConeTracingPixelShaderSet();
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 	
 	// Accessors.
 	inline FShaderType* GetType() const { return Type; }
@@ -844,6 +897,11 @@ public:
 	FShader* ConstructForDeserialization() const;
 
 	/** Calculates a Hash based on this shader type's source code and includes */
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	virtual //We need to override this to add the VXGI hash
+#endif
+	// NVCHANGE_END: Add VXGI
 	const FSHAHash& GetSourceHash() const;
 
 	/** Serializes a shader type reference by name. */

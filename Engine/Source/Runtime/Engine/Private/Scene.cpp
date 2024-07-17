@@ -490,6 +490,100 @@ FPostProcessSettings::FPostProcessSettings()
 	ScreenSpaceReflectionMaxRoughness = 0.6f;
 	bMobileHQGaussian = false;
 
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+	RayleighTransmittance = 1.0f;
+	MieBlendFactor = 0.0f;
+	MieColor = FLinearColor::Black;
+	MieTransmittance = 1.0f;
+	AbsorptionColor = FLinearColor::Black;
+	AbsorptionTransmittance = 1.0f;
+	HGColor = FLinearColor::Black;
+	HGTransmittance = 1.0f;
+	HGEccentricity1 = 0.0f;
+	HGEccentricity2 = 0.0f;
+	HGEccentricityRatio = 0.0f;
+	IsotropicColor = FLinearColor::Black;
+	IsotropicTransmittance = 1.0f;
+	FogMode = EFogMode::FOG_NONE;
+	FogIntensity = 0.0f;
+	FogColor = FLinearColor::Black;
+	FogTransmittance = 1.0f;
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+
+	// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+	{
+		HBAOPowerExponent = 2.f;
+		HBAORadius = 2.f;
+		HBAOBias = 0.1f;
+		HBAOSmallScaleAO = 1.f;
+		HBAOBlurRadius = AOBR_BlurRadius2;
+		HBAOBlurSharpness = 16.f;
+		HBAOForegroundAOEnable = false;
+		HBAOForegroundAODistance = 100.f;
+		HBAOBackgroundAOEnable = false;
+		HBAOBackgroundAODistance = 1000.f;
+	}
+#endif
+	// NVCHANGE_END: Add HBAO+
+
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	{
+		VXGI::DiffuseTracingParameters DefaultParams;
+		VxgiDiffuseTracingEnabled = false;
+		VxgiDiffuseTracingIntensity = DefaultParams.irradianceScale;
+		VxgiDiffuseTracingNumCones = DefaultParams.numCones;
+		bVxgiDiffuseTracingAutoAngle = DefaultParams.autoConeAngle;
+		VxgiDiffuseTracingSparsity = DefaultParams.tracingSparsity;
+		VxgiDiffuseTracingConeAngle = DefaultParams.coneAngle;
+		bVxgiDiffuseTracingConeRotation = DefaultParams.enableConeRotation;
+		bVxgiDiffuseTracingRandomConeOffsets = DefaultParams.enableRandomConeOffsets;
+		VxgiDiffuseTracingConeNormalGroupingFactor = DefaultParams.coneNormalGroupingFactor;
+		VxgiDiffuseTracingMaxSamples = DefaultParams.maxSamples;
+		VxgiDiffuseTracingStep = DefaultParams.tracingStep;
+		VxgiDiffuseTracingOpacityCorrectionFactor = DefaultParams.opacityCorrectionFactor;
+		VxgiDiffuseTracingNormalOffsetFactor = DefaultParams.normalOffsetFactor;
+		VxgiDiffuseTracingInitialOffsetBias = DefaultParams.initialOffsetBias;
+		VxgiDiffuseTracingInitialOffsetDistanceFactor = DefaultParams.initialOffsetDistanceFactor;
+		bVxgiDiffuseTracingTemporalReprojectionEnabled = DefaultParams.enableTemporalReprojection;
+		VxgiDiffuseTracingTemporalReprojectionPreviousFrameWeight = DefaultParams.temporalReprojectionWeight;
+		VxgiDiffuseTracingTemporalReprojectionMaxDistanceInVoxels = 1.f;
+		VxgiDiffuseTracingTemporalReprojectionNormalWeightExponent = 0.f;
+		VxgiDiffuseTracingEnvironmentMapTint = FLinearColor(1.f, 1.f, 1.f, 1.f);
+		VxgiDiffuseTracingEnvironmentMap = NULL;
+		bVxgiDiffuseTracingRefinementEnabled = DefaultParams.enableSparseTracingRefinement;
+		bVxgiDiffuseTracingFlipOpacityDirections = DefaultParams.flipOpacityDirections;
+
+		VxgiAmbientColor = FLinearColor(0.f, 0.f, 0.f);
+		VxgiAmbientRange = DefaultParams.ambientRange;
+		VxgiAmbientScale = DefaultParams.ambientScale;
+		VxgiAmbientBias = DefaultParams.ambientBias;
+		VxgiAmbientPowerExponent = DefaultParams.ambientPower;
+		VxgiAmbientDistanceDarkening = DefaultParams.ambientDistanceDarkening;
+		VxgiAmbientMixIntensity = 1.0f;
+
+		VXGI::UpdateVoxelizationParameters DefaultUpdateVoxelizationParams;
+		VxgiMultiBounceIrradianceScale = DefaultUpdateVoxelizationParams.indirectIrradianceMapTracingParameters.irradianceScale;
+	}
+	{
+		VXGI::SpecularTracingParameters DefaultParams;
+		VxgiSpecularTracingEnabled = false;
+		VxgiSpecularTracingIntensity = DefaultParams.irradianceScale;
+		VxgiSpecularTracingMaxSamples = DefaultParams.maxSamples;
+		VxgiSpecularTracingTracingStep = DefaultParams.tracingStep;
+		VxgiSpecularTracingOpacityCorrectionFactor = DefaultParams.opacityCorrectionFactor;
+		VxgiSpecularTracingInitialOffsetBias = DefaultParams.initialOffsetBias;
+		VxgiSpecularTracingInitialOffsetDistanceFactor = DefaultParams.initialOffsetDistanceFactor;
+		VxgiSpecularTracingFilter = (EVxgiSpecularTracingFilter)DefaultParams.filter;
+		VxgiSpecularTracingEnvironmentMapTint = FLinearColor(1.f, 1.f, 1.f, 1.f);
+		VxgiSpecularTracingEnvironmentMap = NULL;
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
+
 #if DO_CHECK && WITH_EDITOR
 	static bool bCheckedMembers = false;
 	if (!bCheckedMembers)

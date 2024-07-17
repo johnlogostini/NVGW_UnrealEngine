@@ -438,4 +438,8 @@ namespace UE4Delegates_Private
 
 // Simple delegate used by various utilities such as timers
 DECLARE_DELEGATE( FSimpleDelegate );
+// WaveWorks Start
+DECLARE_DELEGATE_TwoParams( FWaveWorksSampleDisplacementsDelegate, TArray<FVector>, TArray<FVector4> );
+DECLARE_DELEGATE_TwoParams( FWaveWorksRaycastResultDelegate, FVector, bool );
+// WaveWorks End
 DECLARE_MULTICAST_DELEGATE( FSimpleMulticastDelegate );

@@ -23,6 +23,10 @@
 #include "StaticParameterSet.h"
 #include "Optional.h"
 
+#if WITH_GFSDK_VXGI
+#include "Classes/Materials/MaterialInterface.h"
+#endif
+
 class FMaterial;
 class FMaterialCompiler;
 class FMaterialRenderProxy;
@@ -974,7 +978,6 @@ public:
 
 	/** A map from material expression to the index into CodeChunks of the code for the material expression. */
 	TMap<FMaterialExpressionKey,int32> ExpressionCodeMap;
-
 	explicit FMaterialFunctionCompileState(UMaterialExpressionMaterialFunctionCall* InFunctionCall) :
 		FunctionCall(InFunctionCall)
 	{}
@@ -1090,11 +1093,19 @@ public:
 	virtual bool IsUsedWithNiagaraRibbons() const { return false; }
 	virtual bool IsUsedWithNiagaraMeshParticles() const { return false; }
 	virtual bool IsUsedWithStaticLighting() const { return false; }
+	virtual bool IsUsedWithFlexFluidSurfaces() const { return false; }
 	virtual	bool IsUsedWithMorphTargets() const { return false; }
 	virtual bool IsUsedWithSplineMeshes() const { return false; }
+	virtual bool IsUsedWithFlexMeshes() const { return false; }
 	virtual bool IsUsedWithInstancedStaticMeshes() const { return false; }
 	virtual bool IsUsedWithAPEXCloth() const { return false; }
 	virtual bool IsUsedWithUI() const { return false; }
+	// NVCHANGE_BEGIN: Add VXGI
+	virtual FVxgiMaterialProperties GetVxgiMaterialProperties() const { return FVxgiMaterialProperties(); }
+	//This is not normally exposed but we need to check and void this since the preview material compiles with less permutation for quicker feedback
+	virtual bool IsPreviewMaterial() const { return false; }
+	virtual bool HasEmissiveColorConnected() const { return false; }
+	// NVCHANGE_END: Add VXGI
 	ENGINE_API virtual enum EMaterialTessellationMode GetTessellationMode() const;
 	virtual bool IsCrackFreeDisplacementEnabled() const { return false; }
 	virtual bool IsAdaptiveTessellationEnabled() const { return false; }
@@ -1607,6 +1618,13 @@ public:
 		return DeferredUniformExpressionCacheRequests.Num() > 0;
 	}
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	virtual FVxgiMaterialProperties GetVxgiMaterialProperties() const { return FVxgiMaterialProperties(); }
+	virtual bool IsTwoSided() const { return false; }
+#endif
+	// NVCHANGE_END: Add VXGI
+
 private:
 
 	/** true if the material is selected. */
@@ -1765,10 +1783,19 @@ public:
 	ENGINE_API virtual bool IsUsedWithNiagaraRibbons() const override;
 	ENGINE_API virtual bool IsUsedWithNiagaraMeshParticles() const override;
 	ENGINE_API virtual bool IsUsedWithStaticLighting() const override;
+	ENGINE_API virtual bool IsUsedWithFlexFluidSurfaces() const override;
 	ENGINE_API virtual bool IsUsedWithMorphTargets() const override;
 	ENGINE_API virtual bool IsUsedWithSplineMeshes() const override;
+	ENGINE_API virtual bool IsUsedWithFlexMeshes() const override;
 	ENGINE_API virtual bool IsUsedWithInstancedStaticMeshes() const override;
 	ENGINE_API virtual bool IsUsedWithAPEXCloth() const override;
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	ENGINE_API virtual FVxgiMaterialProperties GetVxgiMaterialProperties() const override;
+	ENGINE_API virtual bool IsPreviewMaterial() const override;
+	ENGINE_API virtual bool HasEmissiveColorConnected() const override;
+#endif
+	// NVCHANGE_END: Add VXGI
 	ENGINE_API virtual enum EMaterialTessellationMode GetTessellationMode() const override;
 	ENGINE_API virtual bool IsCrackFreeDisplacementEnabled() const override;
 	ENGINE_API virtual bool IsAdaptiveTessellationEnabled() const override;

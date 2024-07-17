@@ -789,7 +789,37 @@ public:
 class FRHIUnorderedAccessView : public FRHIResource {};
 class FRHIShaderResourceView : public FRHIResource {};
 
+// WaveWorks Start
+class FRHIWaveWorks : public FRHIResource
+{
+public:
+	FRHIWaveWorks() : Simulation(nullptr) {}
 
+	virtual void UpdateTick(float SimulationTime) {}
+	virtual void SetRenderState(const FMatrix ViewMatrix, const TArray<uint32>& ShaderInputMappings) {}
+
+	// create quad tree
+	virtual void CreateQuadTree(struct GFSDK_WaveWorks_Quadtree** OutWaveWorksQuadTreeHandle, 
+		int32 MeshDim, float MinPatchLength, uint32 AutoRootLOD, float UpperGridCoverage, 
+		float SeaLevel, bool UseTessellation, float TessellationLOD, float GeoMoprhingDegree) {}
+
+	// draw quad tree
+	virtual void DrawQuadTree(struct GFSDK_WaveWorks_Quadtree* WaveWorksQuadTreeHandle, 
+		FMatrix ViewMatrix, FMatrix ProjMatrix, 
+		const TArray<uint32>& ShaderInputMappings) {}
+
+	virtual void DestroyQuadTree(struct GFSDK_WaveWorks_Quadtree* WaveWorksQuadTreeHandle) {}
+
+	// get displacement with sample points
+	virtual void GetDisplacements(TArray<FVector> InSamplePoints, FWaveWorksSampleDisplacementsDelegate OnRecieveDisplacementDelegate) {}
+	virtual void GetIntersectPointWithRay(FVector InOriginPoint, FVector InDirection, float SeaLevel, FWaveWorksRaycastResultDelegate OnRecieveIntersectPointDelegate) {}
+
+	struct GFSDK_WaveWorks_Simulation* Simulation;
+};
+
+typedef FRHIWaveWorks*					FWaveWorksRHIParamRef;
+typedef TRefCountPtr<FRHIWaveWorks>		FWaveWorksRHIRef;
+// WaveWorks End
 
 typedef FRHISamplerState*              FSamplerStateRHIParamRef;
 typedef TRefCountPtr<FRHISamplerState> FSamplerStateRHIRef;

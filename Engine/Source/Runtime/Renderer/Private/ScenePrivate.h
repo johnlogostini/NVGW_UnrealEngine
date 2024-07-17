@@ -41,6 +41,13 @@
 #include "MobileBasePassRendering.h"
 #include "VolumeRendering.h"
 
+#if WITH_FLEX
+#include "FlexFluidSurfaceRendering.h"
+#endif
+
+// NVCHANGE_BEGIN: Add VXGI
+#include "VxgiRendering.h"
+// NVCHANGE_END: Add VXGI
 /** Factor by which to grow occlusion tests **/
 #define OCCLUSION_SLOP (1.0f)
 
@@ -848,6 +855,35 @@ public:
 	 */
 	FLightPropagationVolume* GetLightPropagationVolume(ERHIFeatureLevel::Type InFeatureLevel, bool bIncludeStereo = false) const;
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+private:
+	// We should keep on in here instead of global so that we don't trash texture rendering previews
+	mutable VXGI::IViewTracer* ViewTracer;
+public:
+	VXGI::IViewTracer* GetVXGITracer() const
+	{
+		check(IsInRenderingThread());
+		//Create this on demand since many views don't need one
+		if (!ViewTracer)
+		{
+			auto Status = GDynamicRHI->RHIVXGIGetInterface()->createNewTracer(&ViewTracer);
+			check(VXGI_SUCCEEDED(Status));
+		}
+		return ViewTracer;
+	}
+
+	TRefCountPtr<IPooledRenderTarget> PrevSceneDepthZ;
+	TRefCountPtr<IPooledRenderTarget> PrevVxgiNormalAndRoughness;
+
+	FTexture2DRHIParamRef GetPreviousVxgiSceneDepthTexture() const { return (IsValidRef(PrevSceneDepthZ) ? ((const FTexture2DRHIRef&)PrevSceneDepthZ->GetRenderTargetItem().ShaderResourceTexture) : (nullptr)); }
+	FTexture2DRHIParamRef GetPreviousVxgiNormalAndRoughnessTexture() const { return (IsValidRef(PrevSceneDepthZ) ? ((const FTexture2DRHIRef&)PrevVxgiNormalAndRoughness->GetRenderTargetItem().ShaderResourceTexture) : (nullptr)); }
+
+	const NVRHI::TextureHandle GetPreviousVxgiSceneDepthTextureHandle() const { return GDynamicRHI->GetVXGITextureFromRHI(GetPreviousVxgiSceneDepthTexture()); }
+	const NVRHI::TextureHandle GetPreviousVxgiNormalAndRoughnessTextureHandle() const { return GDynamicRHI->GetVXGITextureFromRHI(GetPreviousVxgiNormalAndRoughnessTexture()); }
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	/** Default constructor. */
 	FSceneViewState();
 
@@ -1053,6 +1089,18 @@ public:
 		ForwardLightingResources.Release();
 		ForwardLightingCullingResources.Release();
 		LightScatteringHistory.SafeRelease();
+
+		// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+		PrevSceneDepthZ.SafeRelease();
+		PrevVxgiNormalAndRoughness.SafeRelease();
+		if (ViewTracer)
+		{
+			GDynamicRHI->RHIVXGIGetInterface()->destroyTracer(ViewTracer);
+			ViewTracer = NULL;
+		}
+#endif
+		// NVCHANGE_END: Add VXGI
 	}
 
 	// FSceneViewStateInterface
@@ -1948,6 +1996,13 @@ public:
 	/** Draw list to use for selected static meshes in the editor only */
 	TStaticMeshDrawList<FEditorSelectionDrawingPolicy> EditorSelectionDrawList;
 #endif
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	/** Voxelization draw list */
+	TStaticMeshDrawList<TVXGIVoxelizationDrawingPolicy< FVXGIVoxelizationNoLightMapPolicy> > VxgiVoxelizationDrawList;
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	/**
 	 * The following arrays are densely packed primitive data needed by various
 	 * rendering passes. PrimitiveSceneInfo->PackedIndex maintains the index
@@ -2114,6 +2169,12 @@ public:
 
 	const FReadOnlyCVARCache& ReadOnlyCVARCache;
 
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	struct FNVVolumetricLightingProperties*	VolumetricLightingProperties;
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
 #if WITH_EDITOR
 	/** Editor Pixel inspector */
 	FPixelInspectorData PixelInspectorData;
@@ -2149,6 +2210,9 @@ public:
 	virtual void UpdatePlanarReflectionTransform(UPlanarReflectionComponent* Component) override;
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponent2D* CaptureComponent) override;
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponentCube* CaptureComponent) override;
+// WaveWorks Start
+	virtual void UpdateSceneCaptureContents(class UWaveWorksShorelineCaptureComponent* CaptureComponent) override;
+// WaveWorks End
 	virtual void UpdatePlanarReflectionContents(UPlanarReflectionComponent* CaptureComponent, FSceneRenderer& MainSceneRenderer) override;
 	virtual void AllocateReflectionCaptures(const TArray<UReflectionCaptureComponent*>& NewCaptures) override;
 	virtual void UpdateSkyCaptureContents(const USkyLightComponent* CaptureComponent, bool bCaptureEmissiveOnly, UTextureCube* SourceCubemap, FTexture* OutProcessedTexture, float& OutAverageBrightness, FSHVectorRGB3& OutIrradianceEnvironmentMap, TArray<FFloat16Color>* OutRadianceMap) override; 
@@ -2248,6 +2312,12 @@ public:
 	{
 		return GPUSkinCache;
 	}
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	virtual void UpdateVolumetricLightingSettings(AWorldSettings* WorldSettings) override;
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 
 	/**
 	 * Sets the FX system associated with the scene.

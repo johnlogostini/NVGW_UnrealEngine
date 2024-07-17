@@ -17,6 +17,9 @@
 #include "MaterialShaderType.h"
 #include "SceneRenderTargetParameters.h"
 
+// WaveWorks Start
+#include "WaveWorksShaderParameters.h"
+// WaveWorks End
 template<typename TBufferStruct> class TUniformBufferRef;
 
 template<typename ParameterType> 
@@ -155,12 +158,26 @@ public:
 		bool bDeferredPass, 
 		ESceneRenderTargetsMode::Type TextureMode);
 
+// WaveWorks Start
+	/** Sets pixel parameters that are material specific but not FMeshBatch specific. */
+	template< typename ShaderRHIParamRef >
+	void SetWaveWorksParameters(
+		FRHICommandList& RHICmdList,
+		const ShaderRHIParamRef ShaderRHI,
+		const FSceneView& View,
+		class FWaveWorksResource* WaveWorksResource
+		);
+// WaveWorks End
+
 	FTextureRHIRef& GetEyeAdaptation(FRHICommandList& RHICmdList, const FSceneView& View);
 
 	// FShader interface.
 	virtual bool Serialize(FArchive& Ar) override;
 	virtual uint32 GetAllocatedSize() const override;
 
+	// WaveWorks Start
+	FWaveWorksShaderParameters* GetWaveWorksShaderParameters() { return &WaveWorksParameters; }
+	// WaveWorks End
 private:
 
 	FShaderUniformBufferParameter MaterialUniformBuffer;
@@ -175,6 +192,10 @@ private:
 
 	//Use of the eye adaptation texture here is experimental and potentially dangerous as it can introduce a feedback loop. May be removed.
 	FShaderResourceParameter EyeAdaptation;
+
+	// WaveWorks Start
+	FWaveWorksShaderParameters WaveWorksParameters;
+	// WaveWorks End
 
 	FDebugUniformExpressionSet	DebugUniformExpressionSet;
 	FRHIUniformBufferLayout		DebugUniformExpressionUBLayout;

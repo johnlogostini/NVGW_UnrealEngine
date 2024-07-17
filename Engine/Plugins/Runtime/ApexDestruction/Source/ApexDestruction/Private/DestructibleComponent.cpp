@@ -49,6 +49,11 @@ UDestructibleComponent::UDestructibleComponent(const FObjectInitializer& ObjectI
 
 	// Get contact offset params
 	FBodySetupShapeIterator::GetContactOffsetParams(ContactOffsetFactor, MinContactOffset, MaxContactOffset);
+
+//#nv begin #APEX_Destruction Ability to hide bones using a dynamic index buffer
+	// Use index buffer method to hide bones
+	BoneHidingMethod = BHM_Dynamic_Index_Buffer;
+//nv end
 }
 
 #if WITH_EDITORONLY_DATA

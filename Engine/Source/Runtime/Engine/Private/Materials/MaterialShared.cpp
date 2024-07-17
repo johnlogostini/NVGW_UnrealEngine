@@ -315,6 +315,7 @@ int32 FMaterialAttributesInput::CompileWithDefault(class FMaterialCompiler* Comp
 	}
 
 	EMaterialProperty Property = FMaterialAttributeDefinitionMap::GetProperty(AttributeID);
+
 	SetConnectedProperty(Property, Ret != INDEX_NONE);
 
 	if( Ret == INDEX_NONE )
@@ -877,6 +878,11 @@ bool FMaterialResource::IsUsedWithStaticLighting() const
 	return Material->bUsedWithStaticLighting;
 }
 
+bool FMaterialResource::IsUsedWithFlexFluidSurfaces() const
+{
+	return Material->bUsedWithFlexFluidSurfaces;
+}
+
 bool FMaterialResource::IsUsedWithMorphTargets() const
 {
 	return Material->bUsedWithMorphTargets;
@@ -885,6 +891,11 @@ bool FMaterialResource::IsUsedWithMorphTargets() const
 bool FMaterialResource::IsUsedWithSplineMeshes() const
 {
 	return Material->bUsedWithSplineMeshes;
+}
+
+bool FMaterialResource::IsUsedWithFlexMeshes() const
+{
+	return Material->bUsedWithFlexMeshes;
 }
 
 bool FMaterialResource::IsUsedWithInstancedStaticMeshes() const
@@ -896,6 +907,27 @@ bool FMaterialResource::IsUsedWithAPEXCloth() const
 {
 	return Material->bUsedWithClothing;
 }
+
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+
+FVxgiMaterialProperties FMaterialResource::GetVxgiMaterialProperties() const
+{
+	return Material->GetVxgiMaterialProperties();
+}
+
+bool FMaterialResource::IsPreviewMaterial() const
+{
+	return Material->bIsPreviewMaterial;
+}
+
+bool FMaterialResource::HasEmissiveColorConnected() const
+{
+	return Material->EmissiveColor.IsConnected();
+}
+
+#endif
+// NVCHANGE_END: Add VXGI
 
 EMaterialTessellationMode FMaterialResource::GetTessellationMode() const 
 { 
@@ -1195,7 +1227,7 @@ void FMaterialResource::GetRepresentativeShaderTypesAndDescriptions(TMap<FName, 
 				{
 					static FName TBasePassPSTLightMapPolicyName = TEXT("TBasePassPSTDistanceFieldShadowsAndLightMapPolicyHQ");
 					ShaderTypeNamesAndDescriptions.Add(TBasePassPSTLightMapPolicyName, TEXT("Base pass shader with Surface Lightmap"));
-				}
+		}
 
 				static FName TBasePassPSFPrecomputedVolumetricLightmapLightingPolicyName = TEXT("TBasePassPSFPrecomputedVolumetricLightmapLightingPolicy");
 				ShaderTypeNamesAndDescriptions.Add(TBasePassPSFPrecomputedVolumetricLightmapLightingPolicyName, TEXT("Base pass shader with Volumetric Lightmap"));
@@ -1982,6 +2014,13 @@ FMaterialRenderContext::FMaterialRenderContext(
 		, RealTime(0.0f)
 {
 	bShowSelection = GIsEditor && InView && InView->Family->EngineShowFlags.Selection;
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	// Normally, selected dynamic objects get a color added to their EmissiveColor, but we don't want that for voxelization
+	bShowSelection = bShowSelection && !InView->bIsVxgiVoxelization;
+#endif
+	// NVCHANGE_END: Add VXGI
 }
 
 /*-----------------------------------------------------------------------------
@@ -2824,11 +2863,33 @@ FMaterialInstanceBasePropertyOverrides::FMaterialInstanceBasePropertyOverrides()
 	,bOverride_ShadingModel(false)
 	,bOverride_DitheredLODTransition(false)
 	,bOverride_TwoSided(false)
+	// NVCHANGE_BEGIN: Add VXGI
+	, bOverride_VxgiConeTracingEnabled(false)
+	, bOverride_UsedWithVxgiVoxelization(false)
+	, bOverride_VxgiAllowTesselationDuringVoxelization(false)
+	, bOverride_VxgiOmniDirectional(false)
+	, bOverride_VxgiProportionalEmittance(false)
+	, bOverride_VxgiCoverageSupersampling(false)
+	, bOverride_VxgiMaterialSamplingRate(false)
+	, bOverride_VxgiOpacityNoiseScaleBias(false)
+	, bOverride_VxgiVoxelizationThickness(false)
+	// NVCHANGE_END: Add VXGI
 	,OpacityMaskClipValue(.333333f)
 	,BlendMode(BLEND_Opaque)
 	,ShadingModel(MSM_DefaultLit)
 	,TwoSided(0)
 	,DitheredLODTransition(0)
+	// NVCHANGE_BEGIN: Add VXGI
+	, bVxgiConeTracingEnabled(false)
+	, bUsedWithVxgiVoxelization(true)
+	, bVxgiAllowTesselationDuringVoxelization(false)
+	, bVxgiOmniDirectional(false)
+	, bVxgiProportionalEmittance(false)
+	, bVxgiCoverageSupersampling(false)
+	, VxgiMaterialSamplingRate(VXGIMSR_FixedDefault)
+	, VxgiOpacityNoiseScaleBias(0, 0)
+	, VxgiVoxelizationThickness(1.0f)
+	// NVCHANGE_END: Add VXGI
 {
 
 }
@@ -2844,6 +2905,27 @@ bool FMaterialInstanceBasePropertyOverrides::operator==(const FMaterialInstanceB
 			BlendMode == Other.BlendMode &&
 			ShadingModel == Other.ShadingModel &&
 			TwoSided == Other.TwoSided &&
+			// NVCHANGE_BEGIN: Add VXGI
+			DitheredLODTransition == Other.DitheredLODTransition &&
+			bOverride_VxgiConeTracingEnabled == Other.bOverride_VxgiConeTracingEnabled &&
+			bOverride_UsedWithVxgiVoxelization == Other.bOverride_UsedWithVxgiVoxelization &&
+			bOverride_VxgiAllowTesselationDuringVoxelization == Other.bOverride_VxgiAllowTesselationDuringVoxelization &&
+			bOverride_VxgiOmniDirectional == Other.bOverride_VxgiOmniDirectional &&
+			bOverride_VxgiProportionalEmittance == Other.bOverride_VxgiProportionalEmittance &&
+			bOverride_VxgiCoverageSupersampling == Other.bOverride_VxgiCoverageSupersampling &&
+			bOverride_VxgiMaterialSamplingRate == Other.bOverride_VxgiMaterialSamplingRate &&
+			bOverride_VxgiOpacityNoiseScaleBias == Other.bOverride_VxgiOpacityNoiseScaleBias &&
+			bOverride_VxgiVoxelizationThickness == Other.bOverride_VxgiVoxelizationThickness &&
+			bVxgiConeTracingEnabled == Other.bVxgiConeTracingEnabled &&
+			bUsedWithVxgiVoxelization == Other.bUsedWithVxgiVoxelization &&
+			bVxgiAllowTesselationDuringVoxelization == Other.bVxgiAllowTesselationDuringVoxelization &&
+			bVxgiOmniDirectional == Other.bVxgiOmniDirectional &&
+			bVxgiProportionalEmittance == Other.bVxgiProportionalEmittance &&
+			bVxgiCoverageSupersampling == Other.bVxgiCoverageSupersampling &&
+			VxgiMaterialSamplingRate == Other.VxgiMaterialSamplingRate &&
+			VxgiOpacityNoiseScaleBias == Other.VxgiOpacityNoiseScaleBias &&
+			VxgiVoxelizationThickness == Other.VxgiVoxelizationThickness &&
+			// NVCHANGE_END: Add VXGI
 			DitheredLODTransition == Other.DitheredLODTransition;
 }
 

@@ -95,6 +95,27 @@ private:
 	void OnOverrideTwoSidedChanged(bool NewValue);
 	void OnOverrideDitheredLODTransitionChanged(bool NewValue);
 
+	// NVCHANGE_BEGIN: Add VXGI
+	bool OverrideIsVxgiConeTracingEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiConeTracingEnabled; }
+	bool OverrideIsUsedWithVxgiVoxelizationEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_UsedWithVxgiVoxelization; }
+	bool OverrideIsVxgiOmniDirectionalEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiOmniDirectional; }
+	bool OverrideIsVxgiProportionalEmittanceEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiProportionalEmittance; }
+	bool OverrideGetVxgiAllowTesselationDuringVoxelizationEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiAllowTesselationDuringVoxelization; }
+	bool OverrideGetVxgiVoxelizationThicknessEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiVoxelizationThickness; }
+	bool OverrideGetVxgiOpacityNoiseScaleBiasEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiOpacityNoiseScaleBias; }
+	bool OverrideGetVxgiCoverageSupersamplingEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiCoverageSupersampling; }
+	bool OverrideGetVxgiMaterialSamplingRateEnabled() const { return MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiMaterialSamplingRate; }
+
+	void OnOverrideIsVxgiConeTracingEnabled(bool NewValue);
+	void OnOverrideIsUsedWithVxgiVoxelizationEnabled(bool NewValue);
+	void OnOverrideIsVxgiOmniDirectionalEnabled(bool NewValue);
+	void OnOverrideIsVxgiProportionalEmittanceEnabled(bool NewValue);
+	void OnOverrideGetVxgiAllowTesselationDuringVoxelizationEnabled(bool NewValue);
+	void OnOverrideGetVxgiVoxelizationThicknessEnabled(bool NewValue);
+	void OnOverrideGetVxgiOpacityNoiseScaleBiasEnabled(bool NewValue);
+	void OnOverrideGetVxgiCoverageSupersamplingEnabled(bool NewValue);
+	void OnOverrideGetVxgiMaterialSamplingRateEnabled(bool NewValue);
+	// NVCHANGE_END: Add VXGI
 
 private:
 	/** Object that stores all of the possible parameters we can edit */

@@ -675,6 +675,9 @@ ALandscapeProxy::ALandscapeProxy(const FObjectInitializer& ObjectInitializer)
 	RootComponent->Mobility = EComponentMobility::Static;
 	LandscapeSectionOffset = FIntPoint::ZeroValue;
 
+// WaveWorks Begin
+	bAffectDistanceFieldLighting = true;
+// WaveWorks End
 	StaticLightingResolution = 1.0f;
 	StreamingDistanceMultiplier = 1.0f;
 	MaxLODLevel = -1;
@@ -950,7 +953,13 @@ void ULandscapeComponent::BeginDestroy()
 }
 
 FPrimitiveSceneProxy* ULandscapeComponent::CreateSceneProxy()
-{
+{	
+// WaveWorks Begin
+	ALandscapeProxy* LandscapeProxy = GetLandscapeProxy();
+	if(nullptr != LandscapeProxy)
+		bAffectDistanceFieldLighting = LandscapeProxy->bAffectDistanceFieldLighting;
+// WaveWorks End
+
 	const auto FeatureLevel = GetWorld()->FeatureLevel;
 	FPrimitiveSceneProxy* Proxy = nullptr;
 	if (FeatureLevel >= ERHIFeatureLevel::SM4)

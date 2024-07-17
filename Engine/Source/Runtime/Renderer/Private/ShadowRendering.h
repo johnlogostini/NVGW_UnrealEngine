@@ -141,6 +141,11 @@ void SetDeferredLightParameters(
 
 
 	if ((LightType == LightType_Point || LightType == LightType_Spot) && View.IsPerspectiveProjection())
+		// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+		if (!View.bIsVxgiVoxelization)
+#endif
+			// NVCHANGE_END: Add VXGI
 	{
 		DeferredLightUniformsValue.LightColor *= GetLightFadeFactor(View, LightSceneInfo->Proxy);
 	}
@@ -884,7 +889,11 @@ public:
 	/**
 	 * Projects the shadow onto the scene for a particular view.
 	 */
-	void RenderProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const class FViewInfo* View, bool bProjectingForForwardShading, bool bMobile) const;
+	void RenderProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const class FViewInfo* View, bool bProjectingForForwardShading, bool bMobile
+		// @third party code - BEGIN HairWorks
+		, bool bHairPass
+		// @third party code - END HairWorks
+		) const;
 
 	void BeginRenderRayTracedDistanceFieldProjection(FRHICommandListImmediate& RHICmdList, const FViewInfo& View);
 
@@ -983,6 +992,9 @@ public:
 	/** Creates a new view from the pool and caches it in ShadowDepthView for depth rendering. */
 	void SetupShadowDepthView(FRHICommandListImmediate& RHICmdList, FSceneRenderer* SceneRenderer);
 
+	// @third party code - BEGIN HairWorks
+	bool ShouldRenderForHair(const FViewInfo& View)const;
+	// @third party code - END HairWorks
 private:
 	// 0 if Setup...() wasn't called yet
 	const FLightSceneInfo* LightSceneInfo;
@@ -1072,7 +1084,11 @@ private:
 		const FViewInfo* View,
 		const TArray<FVector4, TInlineAllocator<8>>& FrustumVertices,
 		bool bMobileModulatedProjections,
-		bool bCameraInsideShadowFrustum) const;
+		bool bCameraInsideShadowFrustum
+		// @third party code - BEGIN HairWorks
+		, bool bHairPass
+		// @third party code - END HairWorks
+	) const;
 
 	friend class FShadowDepthVS;
 	template <bool bRenderingReflectiveShadowMaps> friend class TShadowDepthBasePS;
@@ -1445,7 +1461,9 @@ public:
 		return Ar;
 	}
 
+#if !WITH_GFSDK_VXGI
 private:
+#endif
 
 	FDeferredPixelShaderParameters DeferredParameters;
 	FShaderParameter ScreenToShadowMatrix;
@@ -1804,7 +1822,9 @@ public:
 		return Ar;
 	}
 
+#if !WITH_GFSDK_VXGI
 private:
+#endif
 
 	FShaderResourceParameter ShadowDepthTexture;
 	FShaderResourceParameter ShadowDepthCubeComparisonSampler;

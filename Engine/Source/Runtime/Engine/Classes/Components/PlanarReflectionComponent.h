@@ -68,6 +68,16 @@ public:
 	UPROPERTY(EditAnywhere, Category = PlanarReflection, meta = (UIMin = "0", UIMax = "90.0"))
 	float AngleFromPlaneFadeEnd;
 
+// WaveWorks Start
+	/** Water Transmittance. */
+	UPROPERTY(EditAnywhere, Category = WaveWorks, meta = (UIMin = "0", UIMax = "1.0"))
+	FVector WaterTransmittance;
+
+	/** Water Transmittance Power. */
+	UPROPERTY(EditAnywhere, Category = WaveWorks, meta = (UIMin = "0", UIMax = "10.0"))
+	float WaterTransmittancePower;
+// WaveWorks End
+
 	/** 
 	 * Whether to render the scene as two-sided, which can be useful to hide artifacts where normal distortion would read 'under' an object that has been clipped by the reflection plane. 
 	 * With this setting enabled, the backfaces of a mesh would be displayed in the clipped region instead of the background which is potentially a bright sky.
@@ -75,6 +85,12 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, Category = PlanarReflection, AdvancedDisplay)
 	bool bRenderSceneTwoSided;
+
+	// WaveWorks Start
+	/** Whether reflection enabled all the time, it is usefull for ocean which is endless */
+	UPROPERTY(EditAnywhere, Category = PlanarReflection)
+	bool bAlwaysVisible;
+	// WaveWorks End
 
 	//~ Begin UObject Interface
 	virtual void Serialize(FArchive& Ar) override;
@@ -111,6 +127,18 @@ public:
 	{
 		return PlanarReflectionId;
 	}
+
+	// WaveWorks Start
+	UFUNCTION(BlueprintCallable, Category = PlanarReflection)
+	class UTextureRenderTarget2D* GetPlanarReflectionTexture()
+	{
+		return TextureTarget;
+	}
+
+	/** Output render target of the planar-reflection capture that can be used in materals. */
+	UPROPERTY(EditAnywhere, Category = PlanarReflection)
+	class UTextureRenderTarget2D* TextureTarget;
+	// WaveWorks End
 
 private:
 

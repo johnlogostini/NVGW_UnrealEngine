@@ -32,6 +32,10 @@ float4 PlanarReflectionScreenScaleBias[NUM_MAX_PLANAR_REFLECTION_VIEWS];
 // True if we're rendering a stereo planar reflection
 bool bIsStereo;
 
+// WaveWorks Start
+float4 PlanarReflectionWaveWorksParameters;
+// WaveWorks End
+
 Texture2D PlanarReflectionTexture;
 SamplerState PlanarReflectionSampler;
 

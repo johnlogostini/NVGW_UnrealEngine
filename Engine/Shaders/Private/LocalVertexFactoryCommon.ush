@@ -34,6 +34,19 @@ struct FVertexFactoryInterpolantsVSToPS
 #if INSTANCED_STEREO
 	nointerpolation uint PackedEyeIndex : PACKED_EYE_INDEX;
 #endif
+
+// WaveWorks Start
+#if WITH_GFSDK_WAVEWORKS
+	float4 nv_waveworks_attr36		: TEXCOORD20;
+	float4 nv_waveworks_attr37		: TEXCOORD21;
+	float4 nv_waveworks_attr38		: TEXCOORD22;
+	float3 nv_waveworks_attr39		: TEXCOORD23;
+	float3 world_pos_undisplaced	: TEXCOORD24;
+	float2 gerstner_sdfUV			: TEXCOORD25;
+	float  gerstner_multiplier		: TEXCOORD26;
+	float  distanceToShoreline		: TEXCOORD27;
+#endif
+// WaveWorks End
 };
 
 #if NUM_TEX_COORD_INTERPOLATORS || USE_PARTICLE_SUBUVS

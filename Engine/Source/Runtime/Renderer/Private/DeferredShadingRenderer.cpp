@@ -24,7 +24,19 @@
 #include "GPUSkinCache.h"
 #include "PipelineStateCache.h"
 #include "ClearQuad.h"
+// @third party code - BEGIN HairWorks
+#include "HairWorksRenderer.h"
+// @third party code - END HairWorks
 
+// NvFlow begin
+#include "GameWorks/RendererHooksNvFlow.h"
+// NvFlow end
+
+// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+#include "GFSDK_SSAO.h"
+#endif
+// NVCHANGE_END: Add HBAO+
 TAutoConsoleVariable<int32> CVarEarlyZPass(
 	TEXT("r.EarlyZPass"),
 	3,	
@@ -96,6 +108,25 @@ static TAutoConsoleVariable<int32> CVarFXSystemPreRenderAfterPrepass(
 	TEXT("If > 0, then do the FX prerender after the prepass. This improves pipelining for greater performance. Experiemental option."),
 	ECVF_RenderThreadSafe
 	);
+
+// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+
+static TAutoConsoleVariable<int32> CVarHBAOEnable(
+	TEXT("r.HBAO.Enable"),
+	0,
+	TEXT("Enable HBAO+"),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<int32> CVarHBAOHighPrecisionDepth(
+	TEXT("r.HBAO.HighPrecisionDepth"),
+	0,
+	TEXT("0: use FP16 for internal depth storage in HBAO+")
+	TEXT("1: use FP32 for internal depth storage. Use this option to avoid self-occlusion bands on objects far away."),
+	ECVF_RenderThreadSafe);
+
+#endif
+// NVCHANGE_END: Add HBAO+
 
 int32 GbEnableAsyncComputeTranslucencyLightingVolumeClear = 1;
 static FAutoConsoleVariableRef CVarEnableAsyncComputeTranslucencyLightingVolumeClear(
@@ -227,6 +258,13 @@ FDeferredShadingSceneRenderer::FDeferredShadingSceneRenderer(const FSceneViewFam
 		EarlyZPassMode = DDM_AllOpaque;
 		bEarlyZPassMovable = true;
 	}
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	InitVxgiRenderingState(InViewFamily);
+	InitVxgiView();
+#endif
+	// NVCHANGE_END: Add VXGI
 }
 
 float GetSceneColorClearAlpha()
@@ -605,7 +643,11 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		}	
 	}
 
-	if (ShouldPrepareDistanceFieldScene())
+	if (ShouldPrepareDistanceFieldScene(
+		// NvFlow begin
+		GRendererNvFlowHooks && GRendererNvFlowHooks->NvFlowUsesGlobalDistanceField()
+		// NvFlow end
+	))
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_DistanceFieldAO_Init);
 		GDistanceFieldVolumeTextureAtlas.UpdateAllocations();
@@ -615,7 +657,11 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		{
 			Views[ViewIndex].HeightfieldLightingViewInfo.SetupVisibleHeightfields(Views[ViewIndex], RHICmdList);
 
-			if (ShouldPrepareGlobalDistanceField())
+			if (ShouldPrepareGlobalDistanceField(
+				// NvFlow begin
+				GRendererNvFlowHooks && GRendererNvFlowHooks->NvFlowUsesGlobalDistanceField()
+				// NvFlow end
+			))
 			{
 				float OcclusionMaxDistance = Scene->DefaultMaxDistanceFieldOcclusionDistance;
 
@@ -729,6 +775,13 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		}
 	}
 
+	// NvFlow begin
+	if (GRendererNvFlowHooks)
+	{
+		GRendererNvFlowHooks->NvFlowUpdateScene(RHICmdList, Scene->Primitives, &Views[0].GlobalDistanceFieldInfo.ParameterData);
+	}
+	// NvFlow end
+
 	// Notify the FX system that the scene is about to be rendered.
 	bool bLateFXPrerender = CVarFXSystemPreRenderAfterPrepass.GetValueOnRenderThread() > 0;
 	bool bDoFXPrerender = Scene->FXSystem && Views.IsValidIndex(0) && !Views[0].bIsPlanarReflection;
@@ -765,7 +818,26 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 			}
 		}
 	};
+#if WITH_FLEX
+	GFlexFluidSurfaceRenderer.UpdateProxiesAndResources(RHICmdList, Views[0].DynamicMeshElements, SceneContext);
+#endif// @third party code - BEGIN HairWorks
+	// Prepare hair rendering
+	if (!IsForwardShadingEnabled(FeatureLevel))
+	{
+		// Do hair simulation
+		{
+			SCOPED_DRAW_EVENT(RHICmdList, HairSimulation);
+			HairWorksRenderer::StepSimulation(RHICmdList, ViewFamily.CurrentWorldTime, ViewFamily.DeltaWorldTime);	 // Must be called before pin meshes are drawn. 
+		}
 
+		// Allocate hair render targets
+		static auto* AlwaysCreateRenderTargets = IConsoleManager::Get().FindConsoleVariable(TEXT("r.HairWorks.AlwaysCreateRenderTargets"));
+		if ((!AlwaysCreateRenderTargets->GetInt() && HairWorksRenderer::ViewsHasHair(Views)) ||
+			AlwaysCreateRenderTargets->GetInt()
+			)
+			HairWorksRenderer::AllocRenderTargets(RHICmdList, FSceneRenderTargets::Get(RHICmdList).GetBufferSizeXY());
+	}
+	// @third party code - END HairWorks
 	// Draw the scene pre-pass / early z pass, populating the scene depth buffer and HiZ
 	GRenderTargetPool.AddPhaseEvent(TEXT("EarlyZPass"));
 	const bool bNeedsPrePass = NeedsPrePass(this);
@@ -960,6 +1032,15 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		SceneContext.ResolveSceneDepthTexture(RHICmdList, FResolveRect(0, 0, ViewFamily.FamilySizeX, ViewFamily.FamilySizeY));
 	}
 
+#if WITH_FLEX
+	GFlexFluidSurfaceRenderer.RenderParticles(RHICmdList, Views);
+	
+	//FSceneRenderTargets::Get(RHICmdList).BeginRenderingGBuffer(RHICmdList, ERenderTargetLoadAction::ENoAction, ERenderTargetLoadAction::ENoAction);
+	SceneContext.BeginRenderingGBuffer(RHICmdList, ERenderTargetLoadAction::ENoAction, ERenderTargetLoadAction::ENoAction, BasePassDepthStencilAccess, ViewFamily.EngineShowFlags.ShaderComplexity);
+
+	GFlexFluidSurfaceRenderer.RenderBasePass(RHICmdList, Views);
+#endif
+
 	if (ViewFamily.EngineShowFlags.VisualizeLightCulling)
 	{
 		// clear out emissive and baked lighting (not too efficient but simple and only needed for this debug view)
@@ -986,10 +1067,38 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 		bRequiresFarZQuadClear = false;
 	}
-	
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	ViewFamily.bVxgiAvailable = false;
+
+	bool bVxgiEnabled = InitializeVxgiVoxelizationParameters(RHICmdList);
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	VisualizeVolumetricLightmap(RHICmdList);
 
 	SceneContext.ResolveSceneDepthToAuxiliaryTexture(RHICmdList);
+
+	// NvFlow begin
+	if (GRendererNvFlowHooks)
+	{
+		bool ShouldDoPreComposite = GRendererNvFlowHooks->NvFlowShouldDoPreComposite(RHICmdList);
+		if (ShouldDoPreComposite)
+		{
+			SceneContext.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthWrite_StencilWrite);
+
+			for (int32 ViewIdx = 0; ViewIdx < Views.Num(); ViewIdx++)
+			{
+				const auto& View = Views[ViewIdx];
+
+				RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
+
+				GRendererNvFlowHooks->NvFlowDoPreComposite(RHICmdList, View);
+			}
+		}
+	}
+	// NvFlow end
 
 	if (!bOcclusionBeforeBasePass)
 	{
@@ -1063,6 +1172,39 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		GCompositionLighting.GfxWaitForAsyncSSAO(RHICmdList);
 	}
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	
+	GDynamicRHI->RHIVXGISetCommandList(&RHICmdList);
+
+	if (bVxgiEnabled)
+	{
+		if (!Views[0].bIsSceneCapture)
+		{
+			RenderVxgiVoxelization(RHICmdList);
+		}
+
+		RenderVxgiTracing(RHICmdList);
+
+		if (!bVxgiAmbientOcclusionMode)
+		{
+			for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+			{
+				CompositeVxgiDiffuseTracing(RHICmdList, Views[ViewIndex]);
+			}
+		}
+	}
+
+	if (!bVxgiEnabled || !bVxgiAmbientOcclusionMode)
+	{
+		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+		{
+			Views[ViewIndex].FinalPostProcessSettings.VxgiAmbientMixIntensity = 0.0f;
+		}
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	// Pre-lighting composition lighting stage
 	// e.g. deferred decals, SSAO
 	if (FeatureLevel >= ERHIFeatureLevel::SM4)
@@ -1102,6 +1244,12 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 		RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
 	}
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	NVVolumetricLightingBeginAccumulation(RHICmdList);
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 
 	// Render lighting.
 	if (bRenderDeferredLighting)
@@ -1177,7 +1325,68 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		ServiceLocalQueue();
 	}
 
-	FLightShaftsOutput LightShaftOutput;
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	NVVolumetricLightingEndAccumulation(RHICmdList);
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+	// @third party code - BEGIN HairWorks
+	// Blend hair lighting
+	if(HairWorksRenderer::ViewsHasHair(Views))
+		HairWorksRenderer::BlendLightingColor(RHICmdList);
+	// @third party code - END HairWorks
+
+	// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+	if (GMaxRHIShaderPlatform == SP_PCD3D_SM5 &&
+		CVarHBAOEnable.GetValueOnRenderThread() &&
+		ViewFamily.EngineShowFlags.HBAO)
+	{
+		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ++ViewIndex)
+		{
+			const FViewInfo& View = Views[ViewIndex];
+
+			if (View.IsPerspectiveProjection() &&
+				View.FinalPostProcessSettings.HBAOPowerExponent > 0.f)
+			{
+				// Set the viewport to the current view
+				RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1);
+
+				GFSDK_SSAO_Parameters Params;
+				Params.Radius = View.FinalPostProcessSettings.HBAORadius;
+				Params.Bias = View.FinalPostProcessSettings.HBAOBias;
+				Params.PowerExponent = View.FinalPostProcessSettings.HBAOPowerExponent;
+				Params.SmallScaleAO = View.FinalPostProcessSettings.HBAOSmallScaleAO;
+				Params.Blur.Enable = View.FinalPostProcessSettings.HBAOBlurRadius != AOBR_BlurRadius0;
+				Params.Blur.Sharpness = View.FinalPostProcessSettings.HBAOBlurSharpness;
+				Params.Blur.Radius = View.FinalPostProcessSettings.HBAOBlurRadius == AOBR_BlurRadius2 ? GFSDK_SSAO_BLUR_RADIUS_2 : GFSDK_SSAO_BLUR_RADIUS_4;
+				Params.ForegroundAO.Enable = View.FinalPostProcessSettings.HBAOForegroundAOEnable;
+				Params.ForegroundAO.ForegroundViewDepth = View.FinalPostProcessSettings.HBAOForegroundAODistance;
+				Params.BackgroundAO.Enable = View.FinalPostProcessSettings.HBAOBackgroundAOEnable;
+				Params.BackgroundAO.BackgroundViewDepth = View.FinalPostProcessSettings.HBAOBackgroundAODistance;
+				Params.DepthStorage = CVarHBAOHighPrecisionDepth.GetValueOnRenderThread() ? GFSDK_SSAO_FP32_VIEW_DEPTHS : GFSDK_SSAO_FP16_VIEW_DEPTHS;
+
+				// Render HBAO and multiply the AO over the SceneColorSurface.RGB, preserving destination alpha
+				RHICmdList.RenderHBAO(
+					SceneContext.GetSceneDepthTexture(),
+					View.ViewMatrices.GetProjectionMatrix(),
+					SceneContext.GetGBufferATexture(),
+					View.ViewMatrices.GetViewMatrix(),
+					SceneContext.GetSceneColorTexture(),
+					Params);
+			}
+		}
+	}
+#endif
+	// NVCHANGE_END: Add HBAO+
+
+	if (ViewFamily.EngineShowFlags.StationaryLightOverlap &&
+		FeatureLevel >= ERHIFeatureLevel::SM4)
+	{
+		RenderStationaryLightOverlap(RHICmdList);
+		ServiceLocalQueue();
+	}	FLightShaftsOutput LightShaftOutput;
 
 	// Draw Lightshafts
 	if (ViewFamily.EngineShowFlags.LightShafts)
@@ -1252,6 +1461,11 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 		// For now there is only one resolve for all translucency passes. This can be changed by enabling the resolve in RenderTranslucency()
 		ConditionalResolveSceneColorForTranslucentMaterials(RHICmdList);
+
+		// WaveWorks Start
+		RenderWaveWorks(RHICmdList);
+		// WaveWorks End
+
 		if (ViewFamily.AllowTranslucencyAfterDOF())
 		{
 			RenderTranslucency(RHICmdList, ETranslucencyPass::TPT_StandardTranslucency);
@@ -1320,6 +1534,16 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		ServiceLocalQueue();
 	}
 
+#if WITH_FLEX
+	GFlexFluidSurfaceRenderer.Cleanup();
+#endif
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	NVVolumetricLightingApplyLighting(RHICmdList);
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
 	// Resolve the scene color for post processing.
 	ResolveSceneColor(RHICmdList);
 
@@ -1327,11 +1551,21 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 	CopySceneCaptureComponentToTarget(RHICmdList);
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+	{
+		SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
+		RenderVxgiDebug(RHICmdList, Views[ViewIndex], ViewIndex);
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	// Finish rendering for each view.
 	if (ViewFamily.bResolveScene)
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, PostProcessing);
-		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_Postprocessing);
+   		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_Postprocessing);
 
 		SCOPE_CYCLE_COUNTER(STAT_FinishRenderViewTargetTime);
 
@@ -1345,6 +1579,9 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 		// End of frame, we don't need it anymore
 		FSceneRenderTargets::Get(RHICmdList).FreeDownsampledTranslucencyDepth();
+// WaveWorks Start
+		FSceneRenderTargets::Get(RHICmdList).FreeWaveWorksDepth();
+// WaveWorks End
 
 		// we rendered to it during the frame, seems we haven't made use of it, because it should be released
 		check(!FSceneRenderTargets::Get(RHICmdList).SeparateTranslucencyRT);
@@ -1368,7 +1605,21 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_AfterFrame));
 	}
 	ServiceLocalQueue();
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+
+	GDynamicRHI->RHIVXGISetCommandList(nullptr);
+
+	if (VxgiView)
+	{
+		delete VxgiView;
+		VxgiView = nullptr;
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 }
+
 
 /** A simple pixel shader used on PC to read scene depth from scene color alpha and write it to a downsized depth buffer. */
 class FDownsampleSceneDepthPS : public FGlobalShader

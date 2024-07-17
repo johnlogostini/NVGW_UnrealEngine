@@ -31,6 +31,9 @@ public:
 		IsStereoParameter.Bind(ParameterMap, TEXT("bIsStereo"));
 		PlanarReflectionTexture.Bind(ParameterMap, TEXT("PlanarReflectionTexture"));
 		PlanarReflectionSampler.Bind(ParameterMap, TEXT("PlanarReflectionSampler"));
+// WaveWorks Start
+		PlanarReflectionWaveWorksParameters.Bind(ParameterMap, TEXT("PlanarReflectionWaveWorksParameters"));
+// WaveWorks End
 	}
 
 	void SetParameters(FRHICommandList& RHICmdList, FPixelShaderRHIParamRef ShaderRHI, const FSceneView& View, const class FPlanarReflectionSceneProxy* ReflectionSceneProxy);
@@ -50,6 +53,9 @@ public:
 		Ar << P.IsStereoParameter;
 		Ar << P.PlanarReflectionTexture;
 		Ar << P.PlanarReflectionSampler;
+// WaveWorks Start
+		Ar << P.PlanarReflectionWaveWorksParameters;
+// WaveWorks End
 		return Ar;
 	}
 
@@ -67,4 +73,7 @@ private:
 	FShaderParameter IsStereoParameter;
 	FShaderResourceParameter PlanarReflectionTexture;
 	FShaderResourceParameter PlanarReflectionSampler;
+// WaveWorks Start
+	FShaderParameter PlanarReflectionWaveWorksParameters;
+// WaveWorks End
 };

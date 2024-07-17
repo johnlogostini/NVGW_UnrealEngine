@@ -19,6 +19,10 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/SceneCapture.h"
 #include "Engine/SceneCapture2D.h"
+// WaveWorks Start
+#include "Engine/WaveWorksShorelineCapture.h"
+#include "Engine/TextureRenderTarget2D.h"
+// WaveWorks End
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/SceneCaptureCube.h"
 #include "Components/SceneCaptureComponentCube.h"
@@ -30,6 +34,26 @@
 #include "Logging/MessageLog.h"
 
 #define LOCTEXT_NAMESPACE "SceneCaptureComponent"
+
+// WaveWorks Start
+
+#include "Components/WaveWorksShorelineCaptureComponent.h"
+#include "WaveWorksGlobalShader.h"
+
+#if WITH_EDITOR
+#include "Developer/AssetTools/Public/IAssetTools.h"
+#include "Developer/AssetTools/Public/AssetToolsModule.h"
+#include "Runtime/AssetRegistry/Public/AssetRegistryModule.h"
+#endif
+
+IMPLEMENT_SHADER_TYPE(, FPreprocessShorelineDistanceFieldTexCS, TEXT("/Engine/Private/GFSDK_WaveWorks_ShorelineDistanceField.usf"),  TEXT("Preprocess_Main"), SF_Compute);
+IMPLEMENT_SHADER_TYPE(, FGetNearestPixelToShorelineCS, TEXT("/Engine/Private/GFSDK_WaveWorks_ShorelineDistanceField.usf"),  TEXT("GetNearestPixel_Main"), SF_Compute);
+IMPLEMENT_SHADER_TYPE(, FBlurShorelineDistanceFieldCS, TEXT("/Engine/Private/GFSDK_WaveWorks_ShorelineDistanceField.usf"),  TEXT("Blur_Main"), SF_Compute);
+IMPLEMENT_SHADER_TYPE(, FGetGradientShorelineDistanceFieldCS, TEXT("/Engine/Private/GFSDK_WaveWorks_ShorelineDistanceField.usf"), TEXT("GetGradient_Main"), SF_Compute);
+
+IMPLEMENT_UNIFORM_BUFFER_STRUCT(FWaveWorksShorelineDFUniformParameters, TEXT("WaveWorksShorelineDFParam"));
+
+// WaveWorks End
 
 static TMultiMap<TWeakObjectPtr<UWorld>, TWeakObjectPtr<USceneCaptureComponent> > SceneCapturesToUpdateMap;
 
@@ -100,7 +124,53 @@ void ASceneCapture2D::PostActorCreated()
 	// Sync component with CameraActor frustum settings.
 	UpdateDrawFrustum();
 }
-// -----------------------------------------------
+
+// WaveWorks Begin
+
+AWaveWorksShorelineCapture::AWaveWorksShorelineCapture(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	WaveWorksShorelineCaptureComponent = CreateDefaultSubobject<UWaveWorksShorelineCaptureComponent>(TEXT("WaveWorksShorelineCaptureComponent"));
+	WaveWorksShorelineCaptureComponent->SetupAttachment(GetMeshComp());
+	WaveWorksShorelineCaptureComponent->SetRelativeLocation(FVector::ZeroVector);
+	WaveWorksShorelineCaptureComponent->SetRelativeRotation(FRotator::ZeroRotator);
+	WaveWorksShorelineCaptureComponent->SetRelativeScale3D(FVector(1,1,1));
+
+	FRotator rotator(-90, 0, 0);
+	this->SetActorRotation(rotator);
+	this->SetActorScale3D(FVector(1, 1, 1));
+}
+
+void AWaveWorksShorelineCapture::OnInterpToggle(bool bEnable)
+{
+	WaveWorksShorelineCaptureComponent->SetVisibility(bEnable);
+}
+
+void AWaveWorksShorelineCapture::PostActorCreated()
+{
+	Super::PostActorCreated();
+
+	// no need load the editor mesh when there is no editor
+#if WITH_EDITOR
+	if (GetMeshComp())
+	{
+		if (!IsRunningCommandlet())
+		{
+			if (!GetMeshComp()->GetStaticMesh())
+			{
+				UStaticMesh* CamMesh = LoadObject<UStaticMesh>(NULL, TEXT("/Engine/EditorMeshes/MatineeCam_SM.MatineeCam_SM"), NULL, LOAD_None, NULL);
+				GetMeshComp()->SetStaticMesh(CamMesh);
+			}
+		}
+	}
+#endif
+}
+
+UWaveWorksShorelineCaptureComponent* AWaveWorksShorelineCapture::GetWaveWorksShorelineCaptureComponent() const 
+{ 
+	return WaveWorksShorelineCaptureComponent; 
+}
+// WaveWorks End
 
 ASceneCaptureCube::ASceneCaptureCube(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -182,6 +252,10 @@ USceneCaptureComponent::USceneCaptureComponent(const FObjectInitializer& ObjectI
 	ShowFlags.SetHMDDistortion(0);
 
     CaptureStereoPass = EStereoscopicPass::eSSP_FULL;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	bEnableVxgi = false;
+	// NVCHANGE_END: Add VXGI
 }
 
 void USceneCaptureComponent::OnRegister()
@@ -603,6 +677,297 @@ void USceneCaptureComponent2D::UpdateSceneCaptureContents(FSceneInterface* Scene
 
 
 // -----------------------------------------------
+// WaveWorks Start
+UWaveWorksShorelineCaptureComponent::UWaveWorksShorelineCaptureComponent(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	MaxPixelsToShoreline = 20;
+	ProjectionType = ECameraProjectionMode::Type::Orthographic;
+	CaptureSource = ESceneCaptureSource::SCS_SceneColorHDR;
+	CompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
+	MaxViewDistanceOverride = -1;
+	bEnableClipPlane = false;
+}
+
+static void PreprocessShorelineDistanceFieldTex_RenderThread(
+	FRHICommandListImmediate& RHICmdList, 
+	FUnorderedAccessViewRHIRef& OutShorelineDFUAV, 
+	const FTexture2DRHIRef& ShorelineDFTexRef)
+{
+	TShaderMapRef<FPreprocessShorelineDistanceFieldTexCS> PreprocessShorelineDFCS(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	RHICmdList.SetComputeShader(PreprocessShorelineDFCS->GetComputeShader());
+
+	PreprocessShorelineDFCS->SetOutput(RHICmdList, OutShorelineDFUAV);
+	PreprocessShorelineDFCS->SetParameters(RHICmdList, ShorelineDFTexRef);
+
+	const uint32 XGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeX() + 32 - 1) / 32);
+	const uint32 YGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeY() + 32 - 1) / 32);
+
+	DispatchComputeShader(
+		RHICmdList,
+		*PreprocessShorelineDFCS,
+		XGroupCount,
+		YGroupCount,
+		1);
+
+	PreprocessShorelineDFCS->UnbindBuffers(RHICmdList);
+}
+
+static void GetNearestPixelToShoreline_RenderThread(
+	FRHICommandListImmediate& RHICmdList,
+	FUnorderedAccessViewRHIRef& OutShorelineDFUAV,
+	const FTexture2DRHIRef& ShorelineDFTexRef,
+	uint32 MaxPixelsToShoreline)
+{
+	TShaderMapRef<FGetNearestPixelToShorelineCS> GetNearestPixelToShorelineCS(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	RHICmdList.SetComputeShader(GetNearestPixelToShorelineCS->GetComputeShader());
+
+	GetNearestPixelToShorelineCS->SetOutput(RHICmdList, OutShorelineDFUAV);
+
+	FWaveWorksShorelineDFUniformParameters WaveWorksShorelineDFUniformParameters;
+	WaveWorksShorelineDFUniformParameters.MaxPixelsToShoreline = MaxPixelsToShoreline;
+	FWaveWorksShorelineDFUniformBufferRef WaveWorksDFUniformBuffer = FWaveWorksShorelineDFUniformBufferRef::CreateUniformBufferImmediate(WaveWorksShorelineDFUniformParameters, UniformBuffer_SingleDraw);
+	GetNearestPixelToShorelineCS->SetParameters(RHICmdList, ShorelineDFTexRef, WaveWorksDFUniformBuffer);
+
+	const uint32 XGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeX() + 32 - 1) / 32);
+	const uint32 YGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeY() + 32 - 1) / 32);
+
+	DispatchComputeShader(
+		RHICmdList,
+		*GetNearestPixelToShorelineCS,
+		XGroupCount,
+		YGroupCount,
+		1);
+
+	GetNearestPixelToShorelineCS->UnbindBuffers(RHICmdList);
+}
+
+static void BlurShorelineDistanceFieldTex_RenderThread(
+	FRHICommandListImmediate& RHICmdList,
+	FUnorderedAccessViewRHIRef& OutShorelineDFUAV,
+	const FTexture2DRHIRef& ShorelineDFTexRef)
+{
+	TShaderMapRef<FBlurShorelineDistanceFieldCS> BlurShorelineDFCS(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	RHICmdList.SetComputeShader(BlurShorelineDFCS->GetComputeShader());
+
+	BlurShorelineDFCS->SetOutput(RHICmdList, OutShorelineDFUAV);
+	BlurShorelineDFCS->SetParameters(RHICmdList, ShorelineDFTexRef);
+
+	const uint32 XGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeX() + 32 - 1) / 32);
+	const uint32 YGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeY() + 32 - 1) / 32);
+
+	DispatchComputeShader(
+		RHICmdList,
+		*BlurShorelineDFCS,
+		XGroupCount,
+		YGroupCount,
+		1);
+
+	BlurShorelineDFCS->UnbindBuffers(RHICmdList);
+}
+
+static void GetGradientShorelineDistanceFieldTex_RenderThread(
+	FRHICommandListImmediate& RHICmdList,
+	FUnorderedAccessViewRHIRef& OutShorelineDFUAV,
+	const FTexture2DRHIRef& ShorelineDFTexRef)
+{
+	TShaderMapRef<FGetGradientShorelineDistanceFieldCS> GetGradientShorelineDFCS(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	RHICmdList.SetComputeShader(GetGradientShorelineDFCS->GetComputeShader());
+
+	GetGradientShorelineDFCS->SetOutput(RHICmdList, OutShorelineDFUAV);
+	GetGradientShorelineDFCS->SetParameters(RHICmdList, ShorelineDFTexRef);
+
+	const uint32 XGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeX() + 32 - 1) / 32);
+	const uint32 YGroupCount = FMath::Max<uint32>(1, (ShorelineDFTexRef->GetSizeY() + 32 - 1) / 32);
+
+	DispatchComputeShader(
+		RHICmdList,
+		*GetGradientShorelineDFCS,
+		XGroupCount,
+		YGroupCount,
+		1);
+
+	GetGradientShorelineDFCS->UnbindBuffers(RHICmdList);
+}
+
+#if WITH_EDITOR
+
+bool UWaveWorksShorelineCaptureComponent::CanEditChange(const UProperty* InProperty) const
+{
+	if (InProperty)
+	{
+		FString PropertyName = InProperty->GetName();
+
+		if (PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, FOVAngle)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, ProjectionType)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, CaptureSource)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, CompositeMode)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, MaxViewDistanceOverride)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, bEnableClipPlane)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, ClipPlaneBase)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USceneCaptureComponent2D, ClipPlaneNormal)
+			)
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+#endif // WITH_EDITOR
+
+void UWaveWorksShorelineCaptureComponent::GenerateShorelineDFTexture()
+{
+#if WITH_EDITOR
+
+	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
+
+	// get origin shoreline distance field texture
+	const FTexture2DRHIRef& ShorelineDFTexRef = TextureTarget->GameThread_GetRenderTargetResource()->GetRenderTargetTexture();
+
+	// create UAV used for output distance field texture
+	uint32 width = (uint32)(TextureTarget->GetSurfaceWidth());
+	uint32 height = (uint32)(TextureTarget->GetSurfaceHeight());
+
+	FRHIResourceCreateInfo CreateInfo;
+	FTexture2DRHIRef OutShorelineDFTexture = RHICreateTexture2D(width, height, PF_FloatRGBA, 1, 1, TexCreate_UAV | TexCreate_ShaderResource, CreateInfo);
+	FUnorderedAccessViewRHIRef OutShorelineDFUAV = RHICreateUnorderedAccessView(OutShorelineDFTexture);
+
+	// Preprocess distance field texture
+	ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
+		PreprocessShorelineDFTexCommand,
+		FRHICommandListImmediate&, RHICmdListInput, RHICmdList,
+		FUnorderedAccessViewRHIRef&, OutShorelineDFUAV, OutShorelineDFUAV,
+		const FTexture2DRHIRef&, ShorelineDFTexRef, ShorelineDFTexRef,
+		{
+			PreprocessShorelineDistanceFieldTex_RenderThread(RHICmdListInput,OutShorelineDFUAV,ShorelineDFTexRef);
+		});
+
+	FlushRenderingCommands();
+
+	// create a tmp texture
+	FTexture2DRHIRef TempShorelineDFTexRef = RHICreateTexture2D(width, height, PF_FloatRGBA, 1, 1, TexCreate_ShaderResource, CreateInfo);
+	RHICmdList.CopyToResolveTarget(OutShorelineDFTexture, TempShorelineDFTexRef, true, FResolveParams());
+
+	// get nearest pixel to shoreline
+	ENQUEUE_UNIQUE_RENDER_COMMAND_FOURPARAMETER(
+		GetNearestPixelShorelineDFTexCommand,
+		FRHICommandListImmediate&, RHICmdListInput, RHICmdList,
+		FUnorderedAccessViewRHIRef&, OutShorelineDFUAV, OutShorelineDFUAV,
+		const FTexture2DRHIRef&, TempShorelineDFTexRef, TempShorelineDFTexRef,
+		uint32, MaxPixelsToShoreline, MaxPixelsToShoreline,
+		{
+			GetNearestPixelToShoreline_RenderThread(RHICmdListInput,OutShorelineDFUAV,TempShorelineDFTexRef,MaxPixelsToShoreline);
+		});
+
+	FlushRenderingCommands();
+
+	// blur distance field texture
+	for (int index = 0; index < 2; index++)
+	{
+		RHICmdList.CopyToResolveTarget(OutShorelineDFTexture, TempShorelineDFTexRef, true, FResolveParams());
+
+		ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
+			BlurShorelineDFTexCommand,
+			FRHICommandListImmediate&, RHICmdListInput, RHICmdList,
+			FUnorderedAccessViewRHIRef&, OutShorelineDFUAV, OutShorelineDFUAV,
+			const FTexture2DRHIRef&, TempShorelineDFTexRef, TempShorelineDFTexRef,
+			{
+				BlurShorelineDistanceFieldTex_RenderThread(RHICmdListInput,OutShorelineDFUAV,TempShorelineDFTexRef);
+			});
+
+		FlushRenderingCommands();
+	}
+
+	// get gradient 
+	RHICmdList.CopyToResolveTarget(OutShorelineDFTexture, TempShorelineDFTexRef, true, FResolveParams());
+
+	ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
+		GetGradientShorelineDFTexCommand,
+		FRHICommandListImmediate&, RHICmdListInput, RHICmdList,
+		FUnorderedAccessViewRHIRef&, OutShorelineDFUAV, OutShorelineDFUAV,
+		const FTexture2DRHIRef&, TempShorelineDFTexRef, TempShorelineDFTexRef,
+		{
+			GetGradientShorelineDistanceFieldTex_RenderThread(RHICmdListInput,OutShorelineDFUAV,TempShorelineDFTexRef);
+		});
+
+	FlushRenderingCommands();
+
+	// save result to texture asset
+	{
+		// read data to CPU
+		TArray<FFloat16Color> OutputBuffer;
+		OutputBuffer.Empty();
+		OutputBuffer.AddUninitialized(width * height);
+
+		FIntRect InRect(0, 0, width, height);
+
+		ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
+			ReadOutDFTextureCommand,
+			FTexture2DRHIRef&, OutShorelineDFTexture, OutShorelineDFTexture,
+			FIntRect, InRect, InRect,
+			TArray<FFloat16Color>&, OutputBuffer, OutputBuffer,
+			{
+				RHICmdList.ReadSurfaceFloatData(
+				OutShorelineDFTexture,
+					InRect,
+					OutputBuffer,
+					CubeFace_PosX,
+					0,
+					0
+					);
+			});
+
+		FlushRenderingCommands();
+		
+		// save datas
+		FString Name;
+		FString PackageName;
+
+		FAssetToolsModule& AssetToolsModule = FModuleManager::Get().LoadModuleChecked<FAssetToolsModule>("AssetTools");
+		AssetToolsModule.Get().CreateUniqueAssetName(TextureTarget->GetOutermost()->GetName(), TEXT("_Tex"), PackageName, Name);
+
+		UTexture2D* Result = NULL;
+		{
+			Result = NewObject<UTexture2D>(CreatePackage(NULL, *PackageName), FName(*Name), TextureTarget->GetMaskedFlags());
+			Result->Source.Init(width, height, 1, 1, TSF_RGBA16F);
+
+			uint32* TextureData = (uint32*)Result->Source.LockMip(0);		
+			FMemory::Memcpy(TextureData, OutputBuffer.GetData(), Result->Source.CalcMipSize(0));
+			Result->Source.UnlockMip(0);
+
+			uint32 Flags = TC_Default;
+			Flags &= ~CTF_SRGB;
+			Result->SRGB = (Flags & CTF_SRGB) != 0;
+			Result->MipGenSettings = TMGS_NoMipmaps;
+			Result->AddressX = TextureAddress::TA_Clamp;
+			Result->AddressY = TextureAddress::TA_Clamp;
+			Result->Filter = TextureFilter::TF_Bilinear;
+
+			Result->CompressionSettings = TC_HDR;
+			// Disable compression
+			Result->CompressionNone = true;
+			Result->DeferCompression = false;
+
+			Result->PostEditChange();
+
+			// package needs saving
+			Result->MarkPackageDirty();
+			// Notify the asset registry
+			FAssetRegistryModule::AssetCreated(Result);
+		}
+	}
+
+	// release textures
+	TempShorelineDFTexRef.SafeRelease();
+	OutShorelineDFTexture.SafeRelease();
+	OutShorelineDFUAV.SafeRelease();
+
+#endif
+}
+// WaveWorks End
+
+// -----------------------------------------------
 
 APlanarReflection::APlanarReflection(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -712,6 +1077,10 @@ int32 NextPlanarReflectionId = 0;
 UPlanarReflectionComponent::UPlanarReflectionComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+// WaveWorks Start
+	bAlwaysVisible = false;
+	TextureTarget = NULL;
+// WaveWorks End
 	bCaptureEveryFrame = true;
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.TickGroup = TG_DuringPhysics;
@@ -730,6 +1099,11 @@ UPlanarReflectionComponent::UPlanarReflectionComponent(const FObjectInitializer&
 	AngleFromPlaneFadeEnd = 30;
 	ProjectionWithExtraFOV[0] = FMatrix::Identity;
 	ProjectionWithExtraFOV[1] = FMatrix::Identity;
+
+// WaveWorks Start
+	WaterTransmittance = FVector(0.065, 0.028, 0.035);
+	WaterTransmittancePower = 0.0f;
+// WaveWorks End
 
 	// Disable screen space effects that don't work properly with the clip plane
 	ShowFlags.SetLightShafts(0);

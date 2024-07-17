@@ -58,6 +58,19 @@ public:
 		FHitProxyId HitProxyId
 		);
 
+	// WaveWorks Start
+	static bool DrawDynamicWaveWorksMesh(
+		FRHICommandList& RHICmdList,
+		const FViewInfo& View,
+		ContextType DrawingContext,
+		const FMeshBatch& Mesh,
+		bool bPreFog,
+		const FDrawingPolicyRenderState& DrawRenderState,
+		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
+		FHitProxyId HitProxyId
+		);
+	// WaveWorks End
+
 	/**
 	* Render a dynamic mesh using a translucent draw policy 
 	* @return true if the mesh rendered
@@ -97,6 +110,19 @@ private:
 		FHitProxyId HitProxyId
 		);
 
+	// WaveWorks Start
+	static bool DrawWaveWorksMesh(
+		FRHICommandList& RHICmdList,
+		const FViewInfo& View,
+		ContextType DrawingContext,
+		const FMeshBatch& Mesh,
+		const uint64& BatchElementMask,
+		const FDrawingPolicyRenderState& DrawRenderState,
+		bool bPreFog,
+		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
+		FHitProxyId HitProxyId
+		);
+	// WaveWorks End
 };
 
 

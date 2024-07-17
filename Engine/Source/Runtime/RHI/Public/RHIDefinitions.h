@@ -869,6 +869,7 @@ inline bool IsFeatureLevelSupported(EShaderPlatform InShaderPlatform, ERHIFeatur
 	return InFeatureLevel <= GetMaxSupportedFeatureLevel(InShaderPlatform);
 }
 
+
 inline bool RHINeedsToSwitchVerticalAxis(EShaderPlatform Platform)
 {
 #if WITH_EDITOR
@@ -981,3 +982,12 @@ inline const TCHAR* GetShaderFrequencyString(EShaderFrequency Frequency, bool bI
 	String += Index;
 	return String;
 };
+
+// WaveWorks Start
+struct WaveWorksShaderInput
+{
+	EShaderFrequency Frequency;
+	ERHIResourceType Type;
+	FName Name;
+};
+// WaveWorks End

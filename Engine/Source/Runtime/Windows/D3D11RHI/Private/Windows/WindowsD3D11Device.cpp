@@ -21,6 +21,9 @@
 // Disabled by default since introduces stalls between render and driver threads
 int32 GDX11NVAfterMathEnabled = 0;
 #endif
+// @third party code - BEGIN HairWorks
+#include "HairWorksSDK.h"
+// @third party code - END HairWorks
 
 extern bool D3D11RHI_ShouldCreateWithD3DDebug();
 extern bool D3D11RHI_ShouldAllowAsyncResourceCreation();
@@ -812,6 +815,44 @@ FDynamicRHI* FD3D11DynamicRHIModule::CreateRHI(ERHIFeatureLevel::Type RequestedF
 void FD3D11DynamicRHI::Init()
 {
 	InitD3DDevice();
+	
+	// @third party code - BEGIN HairWorks
+	// Initialize HairWorks
+	class FHairWorksD3DHelper: public HairWorks::FD3DHelper
+	{
+		virtual void SetShaderResourceView(ID3D11ShaderResourceView* Srv, int32 Index) override
+		{
+			auto& D3dContext = *static_cast<FD3D11DynamicRHI*>(GDynamicRHI)->GetDeviceContext();
+			D3dContext.PSSetShaderResources(Index, 1, &Srv);
+		}
+
+		virtual ID3D11ShaderResourceView* GetShaderResourceView(FRHIShaderResourceView* RHIShaderResourceView) override
+		{
+			if (!RHIShaderResourceView)
+				return nullptr;
+
+			auto* D3D11Srv = static_cast<FD3D11ShaderResourceView*>(RHIShaderResourceView);
+			return D3D11Srv->View;
+		}
+
+		virtual void CommitShaderResources() override
+		{
+			auto& RHI = *static_cast<FD3D11DynamicRHI*>(GDynamicRHI);
+			RHI.CommitNonComputeShaderConstants();
+			RHI.CommitGraphicsResourceTables();
+		}
+	};
+
+	static FHairWorksD3DHelper HairWorksD3DHelper;
+
+	HairWorks::Initialize(*GetDevice(), *Direct3DDeviceIMContext, HairWorksD3DHelper);
+	// @third party code - END HairWorks
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	CreateVxgiInterface();
+#endif
+	// NVCHANGE_END: Add VXGI
 }
 
 void FD3D11DynamicRHI::FlushPendingLogs()
@@ -1252,6 +1293,31 @@ void FD3D11DynamicRHI::InitD3DDevice()
 		{
 			GRHISupportsHDROutput = SupportsHDROutput(this);
 		}
+
+		// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+		if (GMaxRHIFeatureLevel >= ERHIFeatureLevel::SM5)
+		{
+			FString HBAOBinariesPath = FPaths::EngineDir() / TEXT("Binaries/ThirdParty/GameWorks/GFSDK_SSAO/");
+#if PLATFORM_64BITS
+			HBAOModuleHandle = LoadLibraryW(*(HBAOBinariesPath + "GFSDK_SSAO_D3D11.win64.dll"));
+#else
+			HBAOModuleHandle = LoadLibraryW(*(HBAOBinariesPath + "GFSDK_SSAO_D3D11.win32.dll"));
+#endif
+			check(HBAOModuleHandle);
+
+			GFSDK_SSAO_Status status;
+			status = GFSDK_SSAO_CreateContext_D3D11(Direct3DDevice, &HBAOContext);
+			check(status == GFSDK_SSAO_OK);
+
+			GFSDK_SSAO_Version Version;
+			status = GFSDK_SSAO_GetVersion(&Version);
+			check(status == GFSDK_SSAO_OK);
+
+			UE_LOG(LogD3D11RHI, Log, TEXT("HBAO+ %d.%d.%d.%d"), Version.Major, Version.Minor, Version.Branch, Version.Revision);
+		}
+#endif
+		// NVCHANGE_END: Add HBAO+
 
 		FHardwareInfo::RegisterHardwareInfo( NAME_RHI, TEXT( "D3D11" ) );
 

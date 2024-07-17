@@ -92,6 +92,9 @@
 #include "FbxSceneImportDataDetails.h"
 #include "RigDetails.h"
 #include "SceneCaptureDetails.h"
+// WaveWorks Start
+#include "WaveWorksShorelineCaptureDetails.h"
+// WaveWorks End
 #include "CurveColorCustomization.h"
 #include "ActorComponentDetails.h"
 #include "AutoReimportDirectoryCustomization.h"
@@ -124,6 +127,9 @@
 #include "MeshMergingSettingsCustomization.h"
 #include "MaterialAttributePropertyDetails.h"
 #include "CollectionReferenceStructCustomization.h"
+// @third party code - BEGIN HairWorks
+#include "HairWorksDetails.h"
+// @third party code - END HairWorks
 
 IMPLEMENT_MODULE( FDetailCustomizationsModule, DetailCustomizations );
 
@@ -272,6 +278,9 @@ void FDetailCustomizationsModule::RegisterObjectCustomizations()
 	RegisterCustomClassLayout("LevelSequenceActor", FOnGetDetailCustomizationInstance::CreateStatic(&FLevelSequenceActorDetails::MakeInstance));
 	RegisterCustomClassLayout("ReflectionCapture", FOnGetDetailCustomizationInstance::CreateStatic(&FReflectionCaptureDetails::MakeInstance));
 	RegisterCustomClassLayout("SceneCaptureComponent", FOnGetDetailCustomizationInstance::CreateStatic(&FSceneCaptureDetails::MakeInstance));
+	// WaveWorks Start
+	RegisterCustomClassLayout("WaveWorksShorelineCapture", FOnGetDetailCustomizationInstance::CreateStatic(&FWaveWorksShorelineCaptureDetails::MakeInstance));
+	// WaveWorks End
 	RegisterCustomClassLayout("SkyLight", FOnGetDetailCustomizationInstance::CreateStatic(&FSkyLightComponentDetails::MakeInstance));
 	RegisterCustomClassLayout("Brush", FOnGetDetailCustomizationInstance::CreateStatic(&FBrushDetails::MakeInstance));
 	RegisterCustomClassLayout("AmbientSound", FOnGetDetailCustomizationInstance::CreateStatic(&FAmbientSoundDetails::MakeInstance));
@@ -350,6 +359,11 @@ void FDetailCustomizationsModule::RegisterObjectCustomizations()
 
 	RegisterCustomClassLayout("MaterialExpressionGetMaterialAttributes", FOnGetDetailCustomizationInstance::CreateStatic(&FMaterialAttributePropertyDetails::MakeInstance));
 	RegisterCustomClassLayout("MaterialExpressionSetMaterialAttributes", FOnGetDetailCustomizationInstance::CreateStatic(&FMaterialAttributePropertyDetails::MakeInstance));
+
+	// @third party code - BEGIN HairWorks
+	RegisterCustomClassLayout("HairWorksMaterial", FOnGetDetailCustomizationInstance::CreateStatic(&FHairWorksMaterialDetails::MakeInstance));
+	RegisterCustomClassLayout("HairWorksComponent", FOnGetDetailCustomizationInstance::CreateStatic(&FHairWorksComponentDetails::MakeInstance));
+	// @third party code - END HairWorks
 }
 
 

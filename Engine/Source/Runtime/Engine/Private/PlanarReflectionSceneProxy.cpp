@@ -33,6 +33,14 @@ FPlanarReflectionSceneProxy::FPlanarReflectionSceneProxy(UPlanarReflectionCompon
 		Range,
 		-CosFadeEnd * Range);
 
+// WaveWorks Start
+	PlanarReflectionWaveWorksParameters = FVector4(
+		Component->WaterTransmittance.X, 
+		Component->WaterTransmittance.Y, 
+		Component->WaterTransmittance.Z, 
+		Component->WaterTransmittancePower);
+// WaveWorks End
+
 	Component->GetProjectionWithExtraFOV(ProjectionWithExtraFOV[0], 0);
 	Component->GetProjectionWithExtraFOV(ProjectionWithExtraFOV[1], 1);
 
@@ -46,4 +54,8 @@ FPlanarReflectionSceneProxy::FPlanarReflectionSceneProxy(UPlanarReflectionCompon
 	PlanarReflectionId = Component->GetPlanarReflectionId();
 	PrefilterRoughness = Component->PrefilterRoughness;
 	PrefilterRoughnessDistance = Component->PrefilterRoughnessDistance;
+
+// WaveWorks Start
+	bAlwaysVisible = Component->bAlwaysVisible;
+// WaveWorks End
 }

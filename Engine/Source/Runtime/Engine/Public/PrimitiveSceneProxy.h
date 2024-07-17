@@ -16,6 +16,10 @@
 #include "SceneView.h"
 #include "PrimitiveUniformShaderParameters.h"
 
+// NvFlow begin
+#include "GameWorks/PrimitiveSceneProxyNvFlow.h"
+// NvFlow end
+
 class FLightSceneInfo;
 class FLightSceneProxy;
 class FPrimitiveDrawInterface;
@@ -482,6 +486,11 @@ public:
 	inline bool UseEditorDepthTest() const { return bUseEditorDepthTest; }
 	inline bool SupportsDistanceFieldRepresentation() const { return bSupportsDistanceFieldRepresentation; }
 	inline bool SupportsHeightfieldRepresentation() const { return bSupportsHeightfieldRepresentation; }
+	inline bool IsFlexFluidSurface() const { return bFlexFluidSurface; }	
+	// WaveWorks Start
+	inline bool IsQuadTreeWaveWorks() const { return bQuadTreeWaveWorks; }
+	inline class FWaveWorksResource* GetWaveWorksResource() const { return WaveWorksResource; }
+	// WaveWorks End	
 	inline bool TreatAsBackgroundForOcclusion() const { return bTreatAsBackgroundForOcclusion; }
 	inline bool NeedsLevelAddedToWorldNotification() const { return bNeedsLevelAddedToWorldNotification; }
 	inline bool IsComponentLevelVisible() const { return bIsComponentLevelVisible; }
@@ -631,6 +640,10 @@ public:
 	* Get the lightmap resolution for this primitive. Used in VMI_LightmapDensity.
 	*/
 	virtual int32 GetLightMapResolution() const { return 0; }
+
+	// NvFlow begin
+	FPrimitiveSceneProxyNvFlow FlowData;
+	// NvFlow end
 
 protected:
 
@@ -807,7 +820,12 @@ protected:
 
 	uint32 bVerifyUsedMaterials : 1;
 
-private:
+	/** Whether the primitive has Flex fluid surface functionality */
+	uint32 bFlexFluidSurface : 1;	// WaveWorks Start
+	/** Whether the primitive is a WaveWorks primitive */
+	uint32 bQuadTreeWaveWorks : 1;
+	class FWaveWorksResource* WaveWorksResource;
+	// WaveWorks Endprivate:
 
 	/** If this is True, this primitive will be used to occlusion cull other primitives. */
 	uint32 bUseAsOccluder:1;

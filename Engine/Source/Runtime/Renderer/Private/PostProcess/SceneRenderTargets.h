@@ -16,6 +16,14 @@
 #include "SceneView.h"
 #include "RendererInterface.h"
 
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+#include "SystemTextures.h"
+#include "GFSDK_VXGI.h"
+#define NUM_SHADOW_CASCADE_SURFACES 8
+#endif
+// NVCHANGE_END: Add VXGI
+
 class FViewInfo;
 
 /** Number of cube map shadow depth surfaces that will be created and used for rendering one pass point light shadows. */
@@ -252,6 +260,17 @@ public:
 	void BeginRenderingSeparateTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View, bool bFirstTimeThisFrame);
 	void FinishRenderingSeparateTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View);
 
+	// WaveWorks Start
+	void BeginRenderingWaveWorks(FRHICommandList& RHICmdList, const class FViewInfo& View, bool bFirstTimeThisFrame = true);
+	void FinishRenderingWaveWorks(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View);
+
+	void FreeWaveWorksDepth()
+	{
+		if (WaveWorksDepthRT.GetReference())
+			WaveWorksDepthRT.SafeRelease();
+	}
+	// WaveWorks End
+
 	void FreeSeparateTranslucency()
 	{
 		SeparateTranslucencyRT.SafeRelease();
@@ -313,6 +332,10 @@ public:
 	{
 		return (const FTexture2DRHIRef&)DownsampledTranslucencyDepthRT->GetRenderTargetItem().TargetableTexture;
 	}
+
+	// WaveWorks Start
+	TRefCountPtr<IPooledRenderTarget>& GetWaveWorksDepthRT(FRHICommandList& RHICmdList, FIntPoint Size);
+	// WaveWorks End
 
 	/**
 	 * Cleans up editor primitive targets that we no longer need
@@ -607,6 +630,30 @@ public:
 	/** Temporary storage during SH irradiance map generation. */
 	TRefCountPtr<IPooledRenderTarget> SkySHIrradianceMap;
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+public:
+	TRefCountPtr<IPooledRenderTarget> VxgiNormalAndRoughness;
+	TArray<FTexture2DRHIRef> VxgiOutputDiffuse;
+	TArray<FTexture2DRHIRef> VxgiOutputSpec;
+
+	FTextureRHIParamRef GetVxgiOutputDiffuse(int32 ViewIndex) const { return VxgiOutputDiffuse.IsValidIndex(ViewIndex) && IsValidRef(VxgiOutputDiffuse[ViewIndex]) ? (FTextureRHIParamRef)VxgiOutputDiffuse[ViewIndex] : (FTextureRHIParamRef)GSystemTextures.BlackDummy->GetRenderTargetItem().ShaderResourceTexture; }
+	FTextureRHIParamRef GetVxgiOutputSpecular(int32 ViewIndex) const { return VxgiOutputSpec.IsValidIndex(ViewIndex) && IsValidRef(VxgiOutputSpec[ViewIndex]) ? (FTextureRHIParamRef)VxgiOutputSpec[ViewIndex] : (FTextureRHIParamRef)GSystemTextures.BlackDummy->GetRenderTargetItem().ShaderResourceTexture; }
+
+	const FTexture2DRHIRef& GetVxgiSceneDepthTexture() const { return (const FTexture2DRHIRef&)SceneDepthZ->GetRenderTargetItem().ShaderResourceTexture; }
+	const FTexture2DRHIRef& GetVxgiNormalAndRoughnessTexture() const { return (const FTexture2DRHIRef&)VxgiNormalAndRoughness->GetRenderTargetItem().ShaderResourceTexture; }
+
+	const NVRHI::TextureHandle GetVxgiSceneDepthTextureHandle() const { return GDynamicRHI->GetVXGITextureFromRHI(GetVxgiSceneDepthTexture()); }
+	const NVRHI::TextureHandle GetVxgiNormalAndRoughnessTextureHandle() const { return GDynamicRHI->GetVXGITextureFromRHI(GetVxgiNormalAndRoughnessTexture()); }
+#endif
+	// NVCHANGE_END: Add VXGI
+
+	/** Temporary storage, used during reflection capture filtering. 
+	  * 0 - R32 version for > ES2
+	  * 1 - RGBAF version for ES2
+	  */
+	TRefCountPtr<IPooledRenderTarget> ReflectionBrightness[2];
+
 	/** Volume textures used for lighting translucency. */
 	TRefCountPtr<IPooledRenderTarget> TranslucencyLightingVolumeAmbient[NumTranslucentVolumeRenderTargetSets];
 	TRefCountPtr<IPooledRenderTarget> TranslucencyLightingVolumeDirectional[NumTranslucentVolumeRenderTargetSets];
@@ -625,6 +672,10 @@ public:
 	TRefCountPtr<IPooledRenderTarget> SeparateTranslucencyRT;
 	/** Downsampled depth used when rendering translucency in smaller resolution. */
 	TRefCountPtr<IPooledRenderTarget> DownsampledTranslucencyDepthRT;
+
+	// WaveWorks Start
+	TRefCountPtr<IPooledRenderTarget> WaveWorksDepthRT;
+	// WaveWorks End
 
 	// todo: free ScreenSpaceAO so pool can reuse
 	bool bScreenSpaceAOIsValid;

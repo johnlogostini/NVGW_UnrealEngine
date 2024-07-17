@@ -27,6 +27,9 @@
 #include "EditorCompositeParams.h"
 #include "PlanarReflectionRendering.h"
 #include "UnrealEngine.h"
+// WaveWorks Start
+#include "WaveWorksResource.h"
+// WaveWorks End
 
 class FScene;
 
@@ -751,6 +754,9 @@ public:
 	}
 	TBasePassPixelShaderPolicyParamType() {}
 
+	// NVCHANGE_BEGIN: Add VXGI
+	virtual // We need to override this method in TVXGIConeTracingPS
+	// NVCHANGE_END: Add VXGI
 	void SetParameters(
 		FRHICommandList& RHICmdList, 
 		const FMaterialRenderProxy* MaterialRenderProxy, 
@@ -781,6 +787,9 @@ public:
 		ForwardLightingParameters.Set(RHICmdList, ShaderRHI, *View, bIsInstancedStereo);
 	}
 
+	// NVCHANGE_BEGIN: Add VXGI
+	virtual // We need to override this method in TVXGIConeTracingPS
+	// NVCHANGE_END: Add VXGI
 	void SetMesh(FRHICommandList& RHICmdList, const FVertexFactory* VertexFactory,const FSceneView& View,const FPrimitiveSceneProxy* Proxy,const FMeshBatchElement& BatchElement, const FDrawingPolicyRenderState& DrawRenderState, EBlendMode BlendMode);
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -991,6 +1000,46 @@ public:
 		{}
 	};
 
+// WaveWorks Start
+	void ConfigureWaveWorksInputMapping(FMaterialShader* VSShader, FMaterialShader* HSShader, FMaterialShader* DSShader, FMaterialShader* PSShader)
+	{
+		const TArray<WaveWorksShaderInput>* WaveWorksShaderInput = GDynamicRHI->RHIGetDefaultContext()->RHIGetWaveWorksShaderInput();
+		if (nullptr != WaveWorksShaderInput)
+		{
+			uint32 Count = WaveWorksShaderInput->Num();
+			WaveWorksShaderInputMapping.SetNumZeroed(Count);
+
+			for (uint32 Index = 0; Index < Count; ++Index)
+			{
+				FMaterialShader* Shader = nullptr;
+				switch ((*WaveWorksShaderInput)[Index].Frequency)
+				{
+				case SF_Vertex:
+					Shader = VSShader;
+					break;
+				case SF_Hull:
+					Shader = HSShader;
+					break;
+				case SF_Domain:
+					Shader = DSShader;
+					break;
+				case SF_Pixel:
+					Shader = PSShader;
+					break;
+				default:
+					break;
+				}
+
+				if (nullptr != Shader)
+				{
+					FWaveWorksShaderParameters* WaveWorksShaderParams = Shader->GetWaveWorksShaderParameters();
+					WaveWorksShaderInputMapping[Index] = WaveWorksShaderParams->ShaderInputMappings[Index];
+				}				
+			}
+		}
+	}
+// WaveWorks End
+
 	/** Initialization constructor. */
 	TBasePassDrawingPolicy(
 		const FVertexFactory* InVertexFactory,
@@ -1062,6 +1111,44 @@ public:
 			DRAWING_POLICY_MATCH(UseDebugViewPS() == Other.UseDebugViewPS());
 		DRAWING_POLICY_MATCH_END
 	}
+
+// WaveWorks Start
+	void SetSharedWaveWorksState(FRHICommandList& RHICmdList, const FViewInfo* View, FWaveWorksResource* WaveWorksResources)
+	{
+		// If the current debug view shader modes are allowed, different VS/DS/HS must be used (with only SV_POSITION as PS interpolant).
+		if (!View->Family->UseDebugViewVSDSHS())
+		{
+			VertexShader->SetWaveWorksParameters<FVertexShaderRHIParamRef>(RHICmdList, (FVertexShaderRHIParamRef)VertexShader->GetVertexShader(), *View, WaveWorksResources);
+
+			if (HullShader)
+			{
+				HullShader->SetWaveWorksParameters<FHullShaderRHIParamRef>(RHICmdList, (FHullShaderRHIParamRef)HullShader->GetHullShader(), *View, WaveWorksResources);
+			}
+
+			if (DomainShader)
+			{
+				DomainShader->SetWaveWorksParameters<FDomainShaderRHIParamRef>(RHICmdList, (FDomainShaderRHIParamRef)DomainShader->GetDomainShader(), *View, WaveWorksResources);
+			}
+		}
+
+		if (!UseDebugViewPS())
+		{
+			PixelShader->SetWaveWorksParameters<FPixelShaderRHIParamRef>(RHICmdList, (FPixelShaderRHIParamRef)PixelShader->GetPixelShader(), *View, WaveWorksResources);
+		}
+
+		if (nullptr != WaveWorksResources)
+		{
+			FWaveWorksRHIRef WaveWorksRHI = WaveWorksResources->GetWaveWorksRHI();
+			if (WaveWorksRHI)
+			{
+				if (WaveWorksShaderInputMapping.Num() == 0)
+					ConfigureWaveWorksInputMapping(VertexShader, HullShader, DomainShader, PixelShader);
+
+				RHICmdList.SetWaveWorksState(WaveWorksRHI, View->ViewMatrices.GetViewMatrix(), WaveWorksShaderInputMapping);
+			}
+		}		
+	}
+// WaveWorks End
 
 	void SetupPipelineState(FDrawingPolicyRenderState& DrawRenderState, const FSceneView& View) const
 	{
@@ -1273,7 +1360,471 @@ protected:
 
 	/** Whether or not this policy enables atmospheric fog */
 	uint32 bEnableAtmosphericFog : 1;
+
+// WaveWorks Start
+	TArray<uint32> WaveWorksShaderInputMapping;
+// WaveWorks End
 };
+
+// WaveWorks Start
+/**
+* Draws a WaveWorks mesh
+*/
+template<typename LightMapPolicyType>
+class TBasePassWaveWorksDrawingPolicy : public FBasePassDrawingPolicy
+{
+public:
+
+	/** The data the drawing policy uses for each mesh element. */
+	class ElementDataType
+	{
+	public:
+
+		/** The element's light-map data. */
+		typename LightMapPolicyType::ElementDataType LightMapElementData;
+
+		/** Default constructor. */
+		ElementDataType()
+		{}
+
+		/** Initialization constructor. */
+		ElementDataType(const typename LightMapPolicyType::ElementDataType& InLightMapElementData)
+			: LightMapElementData(InLightMapElementData)
+		{}
+	};
+
+	void ConfigureQuardTreeInputMapping(FMaterialShader* VSShader, FMaterialShader* HSShader, FMaterialShader* DSShader, FMaterialShader* PSShader)
+	{
+		const TArray<WaveWorksShaderInput>* QuadTreeShaderInput = GDynamicRHI->RHIGetDefaultContext()->RHIGetWaveWorksQuadTreeShaderInput();
+		if (nullptr != QuadTreeShaderInput)
+		{
+			uint32 Count = QuadTreeShaderInput->Num();
+			QuadTreeShaderInputMapping.SetNumZeroed(Count);
+
+			for (uint32 Index = 0; Index < Count; ++Index)
+			{
+				FMaterialShader* Shader = nullptr;
+				switch ((*QuadTreeShaderInput)[Index].Frequency)
+				{
+				case SF_Vertex:
+					Shader = VSShader;
+					break;
+				case SF_Hull:
+					Shader = HSShader;
+					break;
+				case SF_Domain:
+					Shader = DSShader;
+					break;
+				case SF_Pixel:
+					Shader = PSShader;
+					break;
+				default:
+					break;
+				}
+
+				FWaveWorksShaderParameters* WaveWorksShaderParams = Shader->GetWaveWorksShaderParameters();
+				QuadTreeShaderInputMapping[Index] = WaveWorksShaderParams->QuadTreeShaderInputMappings[Index];
+			}
+		}
+	}
+
+	void ConfigureWaveWorksInputMapping(FMaterialShader* VSShader, FMaterialShader* HSShader, FMaterialShader* DSShader, FMaterialShader* PSShader)
+	{
+		const TArray<WaveWorksShaderInput>* WaveWorksShaderInput = GDynamicRHI->RHIGetDefaultContext()->RHIGetWaveWorksShaderInput();
+		if (nullptr != WaveWorksShaderInput)
+		{
+			uint32 Count = WaveWorksShaderInput->Num();
+			WaveWorksShaderInputMapping.SetNumZeroed(Count);
+
+			for (uint32 Index = 0; Index < Count; ++Index)
+			{
+				FMaterialShader* Shader = nullptr;
+				switch ((*WaveWorksShaderInput)[Index].Frequency)
+				{
+				case SF_Vertex:
+					Shader = VSShader;
+					break;
+				case SF_Hull:
+					Shader = HSShader;
+					break;
+				case SF_Domain:
+					Shader = DSShader;
+					break;
+				case SF_Pixel:
+					Shader = PSShader;
+					break;
+				default:
+					break;
+				}
+
+				FWaveWorksShaderParameters* WaveWorksShaderParams = Shader->GetWaveWorksShaderParameters();
+				WaveWorksShaderInputMapping[Index] = WaveWorksShaderParams->ShaderInputMappings[Index];
+			}
+		}
+	}
+
+	/** Initialization constructor. */
+	TBasePassWaveWorksDrawingPolicy(
+		const FVertexFactory* InVertexFactory,
+		const FMaterialRenderProxy* InMaterialRenderProxy,
+		const FMaterial& InMaterialResource,
+		ERHIFeatureLevel::Type InFeatureLevel,
+		LightMapPolicyType InLightMapPolicy,
+		EBlendMode InBlendMode,
+		ESceneRenderTargetsMode::Type InSceneTextureMode,
+		FMatrix InViewMatrix,
+		FMatrix InProjMatrix,
+		bool bInEnableSkyLight,
+		bool bInEnableAtmosphericFog,
+		const FMeshDrawingPolicyOverrideSettings& InOverrideSettings,
+		EDebugViewShaderMode InDebugViewShaderMode = DVSM_None,
+		bool bInEnableEditorPrimitiveDepthTest = false,
+		bool bInEnableReceiveDecalOutput = false
+	) :
+		FBasePassDrawingPolicy(InVertexFactory, InMaterialRenderProxy, InMaterialResource, InOverrideSettings, 
+			InDebugViewShaderMode, bInEnableReceiveDecalOutput, bInEnableEditorPrimitiveDepthTest),
+		LightMapPolicy(InLightMapPolicy),
+		BlendMode(InBlendMode),
+		SceneTextureMode(InSceneTextureMode),
+		bEnableSkyLight(bInEnableSkyLight),
+		bEnableAtmosphericFog(bInEnableAtmosphericFog),
+		bEnableReceiveDecalOutput(bInEnableReceiveDecalOutput),
+		CurrentViewMatrix(InViewMatrix),
+		CurrentProjMatrix(InProjMatrix)
+	{
+		HullShader = NULL;
+		DomainShader = NULL;
+
+		const EMaterialTessellationMode MaterialTessellationMode = InMaterialResource.GetTessellationMode();
+
+		const bool bNeedsHSDS = RHISupportsTessellation(GShaderPlatformForFeatureLevel[InFeatureLevel])
+			&& InVertexFactory->GetType()->SupportsTessellationShaders()
+			&& MaterialTessellationMode != MTM_NoTessellation;
+
+		GetBasePassShaders<LightMapPolicyType>(
+			InMaterialResource,
+			VertexFactory->GetType(),
+			InLightMapPolicy,
+			bNeedsHSDS,
+			bEnableAtmosphericFog,
+			bEnableSkyLight,
+			HullShader,
+			DomainShader,
+			VertexShader,
+			PixelShader
+			);		
+
+		QuadTreeShaderInputMapping.Empty();
+		WaveWorksShaderInputMapping.Empty();
+
+		ConfigureQuardTreeInputMapping(VertexShader, HullShader, DomainShader, PixelShader);
+		ConfigureWaveWorksInputMapping(VertexShader, HullShader, DomainShader, PixelShader);
+
+#if DO_GUARD_SLOW
+		// Somewhat hacky
+		if (SceneTextureMode == ESceneRenderTargetsMode::DontSet && !bEnableEditorPrimitiveDepthTest && InMaterialResource.IsUsedWithEditorCompositing())
+		{
+			SceneTextureMode = ESceneRenderTargetsMode::DontSetIgnoreBoundByEditorCompositing;
+		}
+#endif
+	}
+
+	// FMeshDrawingPolicy interface.
+
+	FDrawingPolicyMatchResult Matches(const TBasePassWaveWorksDrawingPolicy& Other) const
+	{
+		DRAWING_POLICY_MATCH_BEGIN
+			DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) &&
+			DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader) &&
+			DRAWING_POLICY_MATCH(PixelShader == Other.PixelShader) &&
+			DRAWING_POLICY_MATCH(HullShader == Other.HullShader) &&
+			DRAWING_POLICY_MATCH(DomainShader == Other.DomainShader) &&
+			DRAWING_POLICY_MATCH(SceneTextureMode == Other.SceneTextureMode) &&
+			DRAWING_POLICY_MATCH(bEnableSkyLight == Other.bEnableSkyLight) &&
+			DRAWING_POLICY_MATCH(LightMapPolicy == Other.LightMapPolicy) &&
+			DRAWING_POLICY_MATCH(bEnableReceiveDecalOutput == Other.bEnableReceiveDecalOutput);
+		DRAWING_POLICY_MATCH_END
+	}
+
+	void SetSharedWaveWorksState(FRHICommandList& RHICmdList, const FViewInfo* View, FWaveWorksResource* WaveWorksResources) const
+	{
+		// If the current debug view shader modes are allowed, different VS/DS/HS must be used (with only SV_POSITION as PS interpolant).
+		if (!View->Family->UseDebugViewVSDSHS())
+		{
+			VertexShader->SetWaveWorksParameters<FVertexShaderRHIParamRef>(RHICmdList, (FVertexShaderRHIParamRef)VertexShader->GetVertexShader(), *View, WaveWorksResources);
+
+			if (HullShader)
+			{
+				HullShader->SetWaveWorksParameters<FHullShaderRHIParamRef>(RHICmdList, (FHullShaderRHIParamRef)HullShader->GetHullShader(), *View, WaveWorksResources);
+			}
+
+			if (DomainShader)
+			{
+				DomainShader->SetWaveWorksParameters<FDomainShaderRHIParamRef>(RHICmdList, (FDomainShaderRHIParamRef)DomainShader->GetDomainShader(), *View, WaveWorksResources);
+			}
+		}
+
+		if (!UseDebugViewPS())
+		{
+			PixelShader->SetWaveWorksParameters<FPixelShaderRHIParamRef>(RHICmdList, (FPixelShaderRHIParamRef)PixelShader->GetPixelShader(), *View, WaveWorksResources);
+		}
+
+		FWaveWorksRHIRef WaveWorksRHI = WaveWorksResources->GetWaveWorksRHI();
+		if (WaveWorksRHI)
+		{
+			RHICmdList.SetWaveWorksState(WaveWorksRHI, View->ViewMatrices.GetViewMatrix(), WaveWorksShaderInputMapping);
+		}
+	}
+
+	void SetupPipelineState(FDrawingPolicyRenderState& DrawRenderState, const FSceneView& View) const
+	{
+		if (UseDebugViewPS())
+		{
+			if (IsTranslucentBlendMode(BlendMode))
+			{
+				if (View.Family->EngineShowFlags.ShaderComplexity)
+				{	// If we are in the translucent pass then override the blend mode, otherwise maintain additive blending.
+					DrawRenderState.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_One, BF_One, BO_Add, BF_Zero, BF_One>::GetRHI());
+				}
+				else if (View.Family->GetDebugViewShaderMode() != DVSM_OutputMaterialTextureScales)
+				{	// Otherwise, force translucent blend mode (shaders will use an hardcoded alpha).
+					DrawRenderState.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha, BO_Add, BF_Zero, BF_InverseSourceAlpha>::GetRHI());
+				}
+			}
+
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+			// If we are in the translucent pass or rendering a masked material then override the blend mode, otherwise maintain opaque blending
+			if (View.Family->EngineShowFlags.ShaderComplexity && BlendMode != BLEND_Opaque)
+			{
+				// Add complexity to existing, keep alpha
+				DrawRenderState.SetBlendState(TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_One>::GetRHI());
+			}
+#endif
+		}
+		else
+		{
+			switch (BlendMode)
+			{
+			default:
+			case BLEND_Opaque:
+				// Opaque materials are rendered together in the base pass, where the blend state is set at a higher level
+				break;
+			case BLEND_Masked:
+				// Masked materials are rendered together in the base pass, where the blend state is set at a higher level
+				break;
+			case BLEND_Translucent:
+				// Note: alpha channel used by separate translucency, storing how much of the background should be added when doing the final composite
+				// The Alpha channel is also used by non-separate translucency when rendering to scene captures, which store the final opacity
+				DrawRenderState.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha, BO_Add, BF_Zero, BF_InverseSourceAlpha>::GetRHI());
+				break;
+			case BLEND_Additive:
+				// Add to the existing scene color
+				// Note: alpha channel used by separate translucency, storing how much of the background should be added when doing the final composite
+				// The Alpha channel is also used by non-separate translucency when rendering to scene captures, which store the final opacity
+				DrawRenderState.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_One, BF_One, BO_Add, BF_Zero, BF_InverseSourceAlpha>::GetRHI());
+				break;
+			case BLEND_Modulate:
+				// Modulate with the existing scene color, preserve destination alpha.
+				DrawRenderState.SetBlendState(TStaticBlendState<CW_RGB, BO_Add, BF_DestColor, BF_Zero>::GetRHI());
+				break;
+			case BLEND_AlphaComposite:
+				// Blend with existing scene color. New color is already pre-multiplied by alpha.
+				DrawRenderState.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_One, BF_InverseSourceAlpha, BO_Add, BF_Zero, BF_InverseSourceAlpha>::GetRHI());
+				break;
+			};
+		}
+	}
+
+	void SetSharedState(FRHICommandList& RHICmdList, const FDrawingPolicyRenderState& DrawRenderState, const FViewInfo* View, const ContextDataType PolicyContext, bool bUseDownsampledTranslucencyViewUniformBuffer = false) const
+	{
+		// If the current debug view shader modes are allowed, different VS/DS/HS must be used (with only SV_POSITION as PS interpolant).
+		if (View->Family->UseDebugViewVSDSHS())
+		{
+			FDebugViewMode::SetParametersVSHSDS(RHICmdList, MaterialRenderProxy, MaterialResource, *View, VertexFactory, HullShader && DomainShader);
+		}
+		else
+		{
+			// Set the light-map policy.
+			LightMapPolicy.Set(RHICmdList, VertexShader, !UseDebugViewPS() ? PixelShader : nullptr, VertexShader, PixelShader, VertexFactory, MaterialRenderProxy, View);
+
+			VertexShader->SetParameters(RHICmdList, MaterialRenderProxy, VertexFactory, *MaterialResource, *View, SceneTextureMode, PolicyContext.bIsInstancedStereo, bUseDownsampledTranslucencyViewUniformBuffer);
+
+			if (HullShader)
+			{
+				HullShader->SetParameters(RHICmdList, MaterialRenderProxy, *View);
+			}
+
+			if (DomainShader)
+			{
+				DomainShader->SetParameters(RHICmdList, MaterialRenderProxy, *View);
+			}
+		}
+
+		if (UseDebugViewPS())
+		{
+			FDebugViewMode::GetPSInterface(View->ShaderMap, MaterialResource, GetDebugViewShaderMode())->SetParameters(RHICmdList, VertexShader, PixelShader, MaterialRenderProxy, *MaterialResource, *View);
+		}
+		else
+		{
+			PixelShader->SetParameters(RHICmdList, MaterialRenderProxy, *MaterialResource, View, BlendMode, bEnableEditorPrimitiveDepthTest, SceneTextureMode, PolicyContext.bIsInstancedStereo, bUseDownsampledTranslucencyViewUniformBuffer);
+		}
+	}
+
+	void SetInstancedEyeIndex(FRHICommandList& RHICmdList, const uint32 EyeIndex) const
+	{
+		VertexShader->SetInstancedEyeIndex(RHICmdList, EyeIndex);
+	}
+
+	/**
+	* Create bound shader state using the vertex decl from the mesh draw policy
+	* as well as the shaders needed to draw the mesh
+	* @param DynamicStride - optional stride for dynamic vertex data
+	* @return new bound shader state object
+	*/
+	FBoundShaderStateInput GetBoundShaderStateInput(ERHIFeatureLevel::Type InFeatureLevel)
+	{
+		FBoundShaderStateInput BoundShaderStateInput(
+			FMeshDrawingPolicy::GetVertexDeclaration(),
+			VertexShader->GetVertexShader(),
+			GETSAFERHISHADER_HULL(HullShader),
+			GETSAFERHISHADER_DOMAIN(DomainShader),
+			PixelShader->GetPixelShader(),
+			FGeometryShaderRHIRef()
+		);
+
+		if (UseDebugViewPS())
+		{
+			FDebugViewMode::PatchBoundShaderState(BoundShaderStateInput, MaterialResource, VertexFactory, InFeatureLevel, GetDebugViewShaderMode());
+		}
+		return BoundShaderStateInput;
+	}
+
+	void SetMeshRenderState(
+		FRHICommandList& RHICmdList,
+		const FViewInfo& View,
+		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
+		const FMeshBatch& Mesh,
+		int32 BatchElementIndex,
+		FDrawingPolicyRenderState& DrawRenderState,
+		const ElementDataType& ElementData,
+		const ContextDataType PolicyContext
+	) const
+	{
+		const FMeshBatchElement& BatchElement = Mesh.Elements[BatchElementIndex];
+
+		// If debug view shader mode are allowed, different VS/DS/HS must be used (with only SV_POSITION as PS interpolant).
+		if (View.Family->UseDebugViewVSDSHS())
+		{
+			FDebugViewMode::SetMeshVSHSDS(RHICmdList, VertexFactory, View, PrimitiveSceneProxy, BatchElement, DrawRenderState, MaterialResource, HullShader && DomainShader);
+		}
+		else
+		{
+			// Set the light-map policy's mesh-specific settings.
+			LightMapPolicy.SetMesh(
+				RHICmdList,
+				View,
+				PrimitiveSceneProxy,
+				VertexShader,
+				!UseDebugViewPS() ? PixelShader : nullptr,
+				VertexShader,
+				PixelShader,
+				VertexFactory,
+				MaterialRenderProxy,
+				ElementData.LightMapElementData);
+
+			VertexShader->SetMesh(RHICmdList, VertexFactory, View, PrimitiveSceneProxy, Mesh, BatchElement, DrawRenderState);
+
+			if (HullShader && DomainShader)
+			{
+				HullShader->SetMesh(RHICmdList, VertexFactory, View, PrimitiveSceneProxy, BatchElement, DrawRenderState);
+				DomainShader->SetMesh(RHICmdList, VertexFactory, View, PrimitiveSceneProxy, BatchElement, DrawRenderState);
+			}
+		}
+
+		if (UseDebugViewPS())
+		{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+			FDebugViewMode::GetPSInterface(View.ShaderMap, MaterialResource, GetDebugViewShaderMode())->SetMesh(RHICmdList, VertexFactory, View, PrimitiveSceneProxy, Mesh.VisualizeLODIndex, BatchElement, DrawRenderState);
+#endif
+		}
+		else
+		{
+			PixelShader->SetMesh(RHICmdList, VertexFactory, View, PrimitiveSceneProxy, BatchElement, DrawRenderState, BlendMode);
+		}
+	}
+
+	void DrawMesh(FRHICommandList& RHICmdList, const FMeshBatch& Mesh, int32 BatchElementIndex)
+	{
+		if (SceneProxy)
+		{
+			GFSDK_WaveWorks_Quadtree* QuadTreeHandle = SceneProxy->GetQuadTreeHandle();
+			FWaveWorksResource* WaveworksResource = SceneProxy->GetWaveWorksResource();
+			if (QuadTreeHandle != nullptr && WaveworksResource != nullptr)
+			{
+				auto WaveWorksRHI = WaveworksResource->GetWaveWorksRHI();
+				if (NULL != WaveWorksRHI)
+				{
+					RHICmdList.DrawQuadTreeWaveWorks(WaveWorksRHI, QuadTreeHandle, CurrentViewMatrix, CurrentProjMatrix, QuadTreeShaderInputMapping);
+				}
+			}
+		}
+	}
+
+	friend int32 CompareDrawingPolicy(const TBasePassWaveWorksDrawingPolicy& A, const TBasePassWaveWorksDrawingPolicy& B)
+	{
+		COMPAREDRAWINGPOLICYMEMBERS(VertexShader);
+		COMPAREDRAWINGPOLICYMEMBERS(PixelShader);
+		COMPAREDRAWINGPOLICYMEMBERS(HullShader);
+		COMPAREDRAWINGPOLICYMEMBERS(DomainShader);
+		COMPAREDRAWINGPOLICYMEMBERS(VertexFactory);
+		COMPAREDRAWINGPOLICYMEMBERS(MaterialRenderProxy);
+		COMPAREDRAWINGPOLICYMEMBERS(SceneTextureMode);
+		COMPAREDRAWINGPOLICYMEMBERS(bEnableSkyLight);
+		COMPAREDRAWINGPOLICYMEMBERS(bEnableReceiveDecalOutput);
+
+		return CompareDrawingPolicy(A.LightMapPolicy, B.LightMapPolicy);
+	}
+
+protected:
+
+	// Here we don't store the most derived type of shaders, for instance TBasePassVertexShaderBaseType<LightMapPolicyType>.
+	// This is to allow any shader using the same parameters to be used, and is required to allow FUniformLightMapPolicy to use shaders derived from TUniformLightMapPolicy.
+	TBasePassVertexShaderPolicyParamType<typename LightMapPolicyType::VertexParametersType>* VertexShader;
+	FBaseHS* HullShader; // Does not depend on LightMapPolicyType
+	FBaseDS* DomainShader; // Does not depend on LightMapPolicyType
+	TBasePassPixelShaderPolicyParamType<typename LightMapPolicyType::PixelParametersType>* PixelShader;
+
+	LightMapPolicyType LightMapPolicy;
+	EBlendMode BlendMode;
+
+	ESceneRenderTargetsMode::Type SceneTextureMode;
+
+	uint32 bEnableSkyLight : 1;
+
+	/** Whether or not this policy is compositing editor primitives and needs to depth test against the scene geometry in the base pass pixel shader */
+	uint32 bEnableEditorPrimitiveDepthTest : 1;
+	/** Whether or not this policy enables atmospheric fog */
+	uint32 bEnableAtmosphericFog : 1;
+
+	/** Whether or not outputing the receive decal boolean */
+	uint32 bEnableReceiveDecalOutput : 1;
+
+public:
+	/** Vertex/Hull Shader Input Mappings */
+	TArray<uint32> QuadTreeShaderInputMapping;
+	TArray<uint32> WaveWorksShaderInputMapping;
+
+	/** The WaveWorks scene proxy */
+	class FWaveWorksSceneProxy* SceneProxy;
+
+	/** The current View matrix */
+	FMatrix CurrentViewMatrix;
+
+	/** The current Projection matrix */
+	FMatrix CurrentProjMatrix;
+};
+// WaveWorks End
+
 
 /**
  * A drawing policy factory for the base pass drawing policy.

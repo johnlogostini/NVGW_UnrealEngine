@@ -46,6 +46,7 @@ public:
 	void OnInterpToggle(bool bEnable);
 
 	/** Returns subobject **/
+	UFUNCTION(BlueprintCallable, Category = PlanarReflection)
 	ENGINE_API class UPlanarReflectionComponent* GetPlanarReflectionComponent() const
 	{
 		return PlanarReflectionComponent;

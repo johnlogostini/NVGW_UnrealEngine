@@ -498,6 +498,9 @@ FBodyInstance::FBodyInstance()
 	, InitialLinearVelocity(0.0f)
 	, PhysxUserData(this)
 #endif // WITH_PHYSX
+// WaveWorks Start
+	, ShapesVolume(0.0)
+// WaveWorks End
 {
 	MaxAngularVelocity = UPhysicsSettings::Get()->MaxAngularVelocity;
 }
@@ -3290,7 +3293,7 @@ float gPerCm3ToKgPerCm3(float gPerCm3)
 
 #if WITH_PHYSX
 /** Computes and adds the mass properties (inertia, com, etc...) based on the mass settings of the body instance. */
-PxMassProperties ComputeMassProperties(const FBodyInstance* OwningBodyInstance, TArray<PxShape*> Shapes, const FTransform& MassModifierTransform)
+PxMassProperties ComputeMassProperties(const FBodyInstance* OwningBodyInstance, TArray<PxShape*> Shapes, const FTransform& MassModifierTransform, float& ShapesVolume)
 {
 	// physical material - nothing can weigh less than hydrogen (0.09 kg/m^3)
 	float DensityKGPerCubicUU = 1.0f;
@@ -3301,7 +3304,12 @@ PxMassProperties ComputeMassProperties(const FBodyInstance* OwningBodyInstance, 
 		RaiseMassToPower = PhysMat->RaiseMassToPower;
 	}
 
-	PxMassProperties MassProps = PxRigidBodyExt::computeMassPropertiesFromShapes(Shapes.GetData(), Shapes.Num()) * DensityKGPerCubicUU;
+	
+	PxMassProperties MassProps = PxRigidBodyExt::computeMassPropertiesFromShapes(Shapes.GetData(), Shapes.Num());
+// WaveWorks Start
+	ShapesVolume = MassProps.mass;
+// WaveWorks End
+	MassProps = MassProps * DensityKGPerCubicUU;
 
 	float OldMass = MassProps.mass;
 	float NewMass = 0.f;
@@ -3355,6 +3363,9 @@ void FBodyInstance::UpdateMassProperties()
 				}
 			}
 
+// WaveWorks Start
+			float TotalVolume = 0;
+// WaveWorks End
 			PxMassProperties TotalMassProperties;
 			if(ShapeToBodiesMap.IsValid() && ShapeToBodiesMap->Num() > 0)
 			{
@@ -3403,7 +3414,7 @@ void FBodyInstance::UpdateMassProperties()
 					FTransform MassModifierTransform = WeldedBatch.RelTM;
 					MassModifierTransform.SetScale3D(MassModifierTransform.GetScale3D() * Scale3D);	//Ensure that any scaling that is done on the component is passed into the mass frame modifiers
 
-					PxMassProperties BodyMassProperties = ComputeMassProperties(OwningBI, WeldedBatch.Shapes, MassModifierTransform);
+					PxMassProperties BodyMassProperties = ComputeMassProperties(OwningBI, WeldedBatch.Shapes, MassModifierTransform, TotalVolume);
 					SubMassProperties.Add(BodyMassProperties);
 					MassTMs.Add(PxTransform(PxIdentity));
 				}
@@ -3414,7 +3425,7 @@ void FBodyInstance::UpdateMassProperties()
 			{
 				//No children welded so just get this body's mass properties
 				FTransform MassModifierTransform(FQuat::Identity, FVector(0.f, 0.f, 0.f), Scale3D);	//Ensure that any scaling that is done on the component is passed into the mass frame modifiers
-				TotalMassProperties = ComputeMassProperties(this, Shapes, MassModifierTransform);
+				TotalMassProperties = ComputeMassProperties(this, Shapes, MassModifierTransform, TotalVolume);
 			}
 			
 			PxQuat MassOrientation;
@@ -3422,6 +3433,9 @@ void FBodyInstance::UpdateMassProperties()
 
 			PRigidBody->setMass(TotalMassProperties.mass);
 			PRigidBody->setMassSpaceInertiaTensor(MassSpaceInertiaTensor);
+// WaveWorks Start
+			this->SetBodyVolume(TotalVolume);
+// WaveWorks End
 
 			PxTransform COM(TotalMassProperties.centerOfMass, MassOrientation);
 			PRigidBody->setCMassLocalPose(COM);

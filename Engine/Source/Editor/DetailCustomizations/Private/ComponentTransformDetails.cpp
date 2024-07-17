@@ -34,6 +34,10 @@
 #include "EditorProjectSettings.h"
 #include "HAL/PlatformApplicationMisc.h"
 
+// WaveWorks Start
+#include "Engine/WaveWorksShorelineCapture.h"
+// WaveWorks End
+
 #define LOCTEXT_NAMESPACE "FComponentTransformDetails"
 
 class FScopedSwitchWorldForObject
@@ -300,12 +304,25 @@ BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
 void FComponentTransformDetails::GenerateChildContent( IDetailChildrenBuilder& ChildrenBuilder )
 {
 	UClass* SceneComponentClass = USceneComponent::StaticClass();
-		
+	
 	FSlateFontInfo FontInfo = IDetailLayoutBuilder::GetDetailFont();
 
 	const bool bHideLocationField = ( HiddenFieldMask & ( 1 << ETransformField::Location ) ) != 0;
 	const bool bHideRotationField = ( HiddenFieldMask & ( 1 << ETransformField::Rotation ) ) != 0;
 	const bool bHideScaleField = ( HiddenFieldMask & ( 1 << ETransformField::Scale ) ) != 0;
+
+// WaveWorks Start
+	bool bHasWaveWorksShorelineCapture = false;
+	for (int32 index = 0; index < SelectedObjects.Num(); index++)
+	{
+		UObject* actor = SelectedObjects[index].Get();
+		if (actor->IsA(AWaveWorksShorelineCapture::StaticClass()))
+		{
+			bHasWaveWorksShorelineCapture = true;
+			break;
+		}
+	}
+// WaveWorks End
 
 	// Location
 	if(!bHideLocationField)
@@ -375,7 +392,9 @@ void FComponentTransformDetails::GenerateChildContent( IDetailChildrenBuilder& C
 	}
 	
 	// Rotation
-	if(!bHideRotationField)
+// WaveWorks Start
+	if(!bHideRotationField && !bHasWaveWorksShorelineCapture)
+// WaveWorks End
 	{
 		TSharedPtr<INumericTypeInterface<float>> TypeInterface;
 		if( FUnitConversion::Settings().ShouldDisplayUnits() )
@@ -447,7 +466,9 @@ void FComponentTransformDetails::GenerateChildContent( IDetailChildrenBuilder& C
 	}
 	
 	// Scale
-	if(!bHideScaleField)
+// WaveWorks End
+	if(!bHideScaleField && !bHasWaveWorksShorelineCapture)
+// WaveWorks End
 	{
 		ChildrenBuilder.AddCustomRow( LOCTEXT("ScaleFilter", "Scale") )
 		.CopyAction( CreateCopyAction(ETransformField::Scale) )

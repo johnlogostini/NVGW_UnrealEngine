@@ -130,6 +130,10 @@ public:
 	float PrefilterRoughness;
 	float PrefilterRoughnessDistance;
 	bool bIsStereo;
+// WaveWorks Start
+	bool bAlwaysVisible;
+	FVector4 PlanarReflectionWaveWorksParameters;
+// WaveWorks End
 
 	/** This is specific to a certain view and should actually be stored in FSceneViewState. */
 	FPlanarReflectionRenderTarget* RenderTarget;

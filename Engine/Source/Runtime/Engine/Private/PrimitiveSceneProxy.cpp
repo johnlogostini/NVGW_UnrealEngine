@@ -82,12 +82,17 @@ FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* InComponen
 ,	bSingleSampleShadowFromStationaryLights(InComponent->bSingleSampleShadowFromStationaryLights)
 ,	bStaticElementsAlwaysUseProxyPrimitiveUniformBuffer(false)
 ,	bAlwaysHasVelocity(false)
+// WaveWorks Start
+,	bQuadTreeWaveWorks(false)
+,	WaveWorksResource(nullptr)
+// WaveWorks End
 ,	bUseEditorDepthTest(true)
 ,	bSupportsDistanceFieldRepresentation(false)
 ,	bSupportsHeightfieldRepresentation(false)
 ,	bNeedsLevelAddedToWorldNotification(false)
 ,	bWantsSelectionOutline(true)
 ,	bVerifyUsedMaterials(true)
+,	bFlexFluidSurface(false)
 ,	bUseAsOccluder(InComponent->bUseAsOccluder)
 ,	bAllowApproximateOcclusion(InComponent->Mobility != EComponentMobility::Movable)
 ,	bSelectable(InComponent->bSelectable)
@@ -541,7 +546,11 @@ bool FPrimitiveSceneProxy::IsShown(const FSceneView* View) const
 
 		if(!DrawInGame
 #if WITH_EDITOR
+#if WITH_GFSDK_VXGI
+			|| (!View->bIsGameView && View->Family->EngineShowFlags.Game && !DrawInEditor && !View->bIsVxgiVoxelization)
+#else
 			|| (!View->bIsGameView && View->Family->EngineShowFlags.Game && !DrawInEditor)	// ..."G" mode in editor viewport. covers the case when the primitive must be rendered for the voxelization pass, but the user has chosen to hide the primitive from view.
+#endif
 #endif
 			)
 		{

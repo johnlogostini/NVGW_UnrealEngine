@@ -16,8 +16,8 @@ public class Engine : ModuleRules
 		PrivateIncludePaths.AddRange(
 			new string[] {
 				"Developer/DerivedDataCache/Public",
-				"Runtime/SynthBenchmark/Public",
-				"Runtime/Engine/Private",
+                "Runtime/SynthBenchmark/Public",
+                "Runtime/Engine/Private",
 			}
 		);
 
@@ -33,7 +33,7 @@ public class Engine : ModuleRules
 				"AutomationWorker",
 				"MovieSceneCapture",
 				"DesktopPlatform",
-			}
+            }
 		);
 
 		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
@@ -69,33 +69,35 @@ public class Engine : ModuleRules
 				"RenderCore",
 				"RHI",
 				"ShaderCore",
-				"UtilityShaders",
-				"AssetRegistry", // Here until FAssetData is moved to engine
+                "UtilityShaders",
+                "AssetRegistry", // Here until FAssetData is moved to engine
 				"EngineMessages",
 				"EngineSettings",
 				"SynthBenchmark",
-				"GameplayTags",
-				"AIModule",
+                "GameplayTags",
+                "AIModule",
 				"DatabaseSupport",
-				"PacketHandler",
+                "PacketHandler",
 				"HardwareSurvey",
-			}
-		);
+            }
+        );
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[] {
-				"AppFramework",
+                "AppFramework",
 				"Networking",
 				"Sockets",
 				"Landscape",
-				"UMG",
+                "UMG",
 				"Projects",
-				"MaterialShaderQualitySettings",
-				"CinematicCamera",
+                "MaterialShaderQualitySettings",
+                "CinematicCamera",
 				"Analytics",
-				"AnalyticsET"
-			}
-		);
+				"AnalyticsET",
+// WaveWorks Start
+                "WaveWorks",
+// WaveWorks End
+            }		);
 
 		if (Target.bUseXGEController &&
 			Target.Type == TargetType.Editor &&
@@ -110,14 +112,14 @@ public class Engine : ModuleRules
 			DynamicallyLoadedModuleNames.Add("Localization");
 		}
 
-		// to prevent "causes WARNING: Non-editor build cannot depend on non-redistributable modules."
-		if (Target.Type == TargetType.Editor)
-		{
+        // to prevent "causes WARNING: Non-editor build cannot depend on non-redistributable modules."
+        if (Target.Type == TargetType.Editor)
+        {
 			// for now we depend on this
-			PrivateDependencyModuleNames.Add("RawMesh");
-		}
+            PrivateDependencyModuleNames.Add("RawMesh");
+        }
 
-		bool bVariadicTemplatesSupported = true;
+        bool bVariadicTemplatesSupported = true;
 		if (Target.Platform == UnrealTargetPlatform.XboxOne)
 		{
 			// Use reflection to allow type not to exist if console code is not present
@@ -131,46 +133,46 @@ public class Engine : ModuleRules
 				}
 			}
 
-			AddEngineThirdPartyPrivateStaticDependencies(Target,
-				"libOpus"
-				);
-		}
+            AddEngineThirdPartyPrivateStaticDependencies(Target,
+                "libOpus"
+                );
+        }
 
 		if (bVariadicTemplatesSupported)
-		{
-			PrivateIncludePathModuleNames.AddRange(
-				new string[] {
-					"MessagingRpc",
-					"PortalRpc",
-					"PortalServices",
-				}
-			);
+        {
+            PrivateIncludePathModuleNames.AddRange(
+                new string[] {
+                    "MessagingRpc",
+                    "PortalRpc",
+                    "PortalServices",
+                }
+            );
 
-			if (Target.Type == TargetType.Editor)
-			{
-				// these modules require variadic templates
-				PrivateDependencyModuleNames.AddRange(
-					new string[] {
-						"MessagingRpc",
-						"PortalRpc",
-						"PortalServices",
-					}
-				);
-			}
-		}
+            if (Target.Type == TargetType.Editor)
+            {
+	            // these modules require variadic templates
+	            PrivateDependencyModuleNames.AddRange(
+	                new string[] {
+	                    "MessagingRpc",
+	                    "PortalRpc",
+	                    "PortalServices",
+	                }
+	            );
+	        }
+        }
 
-		CircularlyReferencedDependentModules.Add("GameplayTags");
-		CircularlyReferencedDependentModules.Add("AIModule");
+        CircularlyReferencedDependentModules.Add("GameplayTags");
+        CircularlyReferencedDependentModules.Add("AIModule");
 		CircularlyReferencedDependentModules.Add("Landscape");
-		CircularlyReferencedDependentModules.Add("UMG");
-		CircularlyReferencedDependentModules.Add("MaterialShaderQualitySettings");
-		CircularlyReferencedDependentModules.Add("CinematicCamera");
+        CircularlyReferencedDependentModules.Add("UMG");
+        CircularlyReferencedDependentModules.Add("MaterialShaderQualitySettings");
+        CircularlyReferencedDependentModules.Add("CinematicCamera");
 
-		// The AnimGraphRuntime module is not needed by Engine proper, but it is loaded in LaunchEngineLoop.cpp,
-		// and needs to be listed in an always-included module in order to be compiled into standalone games
-		DynamicallyLoadedModuleNames.Add("AnimGraphRuntime");
-		// So does Geometry Cache
-		DynamicallyLoadedModuleNames.Add("GeometryCache");
+        // The AnimGraphRuntime module is not needed by Engine proper, but it is loaded in LaunchEngineLoop.cpp,
+        // and needs to be listed in an always-included module in order to be compiled into standalone games
+        DynamicallyLoadedModuleNames.Add("AnimGraphRuntime");
+        // So does Geometry Cache
+        DynamicallyLoadedModuleNames.Add("GeometryCache");
 
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]
@@ -179,8 +181,8 @@ public class Engine : ModuleRules
 				"MovieSceneCapture",
 				"MovieSceneTracks",
 				"HeadMountedDisplay",
-				"MRMesh",
-				"StreamingPauseRendering",
+                "MRMesh",
+                "StreamingPauseRendering",
 			}
 		);
 
@@ -230,9 +232,9 @@ public class Engine : ModuleRules
 				PrivateDependencyModuleNames.Add("CollisionAnalyzer");
 				CircularlyReferencedDependentModules.Add("CollisionAnalyzer");
 
-				PrivateDependencyModuleNames.Add("LogVisualizer");
-				CircularlyReferencedDependentModules.Add("LogVisualizer");
-			}
+                PrivateDependencyModuleNames.Add("LogVisualizer");
+                CircularlyReferencedDependentModules.Add("LogVisualizer");
+            }
 
 			if (Target.Platform == UnrealTargetPlatform.Win64)
 			{
@@ -251,8 +253,8 @@ public class Engine : ModuleRules
 			{
 				DynamicallyLoadedModuleNames.AddRange(
 					new string[] {
-						"MacTargetPlatform",
-						"MacNoEditorTargetPlatform",
+					    "MacTargetPlatform",
+					    "MacNoEditorTargetPlatform",
 						"MacServerTargetPlatform",
 						"MacClientTargetPlatform",
 						"AllDesktopTargetPlatform",
@@ -285,13 +287,13 @@ public class Engine : ModuleRules
 		);
 
 		if (Target.Type != TargetType.Server)
-		{
-			DynamicallyLoadedModuleNames.AddRange(
-				new string[] {
-					"ImageWrapper"
-				}
-			);
-		}
+        {
+		    DynamicallyLoadedModuleNames.AddRange(
+			    new string[] {
+				    "ImageWrapper"
+			    }
+		    );
+        }
 
 		WhitelistRestrictedFolders.Add("Private/NotForLicensees");
 
@@ -301,7 +303,7 @@ public class Engine : ModuleRules
 				new string[] {
 					"DerivedDataCache",
 					"TargetPlatform",
-					"DesktopPlatform"
+                    "DesktopPlatform"
 				}
 			);
 		}
@@ -309,51 +311,51 @@ public class Engine : ModuleRules
 		if (Target.bBuildEditor == true)
 		{
 			PublicDependencyModuleNames.AddRange(
-				new string[] {
+                new string[] {
 					"UnrealEd",
-					"Kismet"
-				}
-			);	// @todo api: Only public because of WITH_EDITOR and UNREALED_API
+                    "Kismet"
+                }
+            );	// @todo api: Only public because of WITH_EDITOR and UNREALED_API
 
 			CircularlyReferencedDependentModules.AddRange(
-				new string[] {
-					"UnrealEd",
-					"Kismet"
-				}
-			);
+                new string[] {
+                    "UnrealEd",
+                    "Kismet"
+                }
+            );
 
 			PrivateIncludePathModuleNames.Add("TextureCompressor");
 			PrivateIncludePaths.Add("Developer/TextureCompressor/Public");
 
-			PrivateIncludePathModuleNames.Add("HierarchicalLODUtilities");
-			DynamicallyLoadedModuleNames.Add("HierarchicalLODUtilities");
+            PrivateIncludePathModuleNames.Add("HierarchicalLODUtilities");
+            DynamicallyLoadedModuleNames.Add("HierarchicalLODUtilities");
 
-			DynamicallyLoadedModuleNames.Add("AnimationModifiers");
+            DynamicallyLoadedModuleNames.Add("AnimationModifiers");
 
-			PrivateIncludePathModuleNames.Add("AssetTools");
-			DynamicallyLoadedModuleNames.Add("AssetTools");
+            PrivateIncludePathModuleNames.Add("AssetTools");
+            DynamicallyLoadedModuleNames.Add("AssetTools");
 
 			PrivateIncludePathModuleNames.Add("PIEPreviewDeviceProfileSelector");
-		}
+        }
 
 		SetupModulePhysXAPEXSupport(Target);
 		if(Target.bCompilePhysX && (Target.bBuildEditor || Target.bCompileAPEX))
-		{
-			DynamicallyLoadedModuleNames.Add("PhysXCooking");
-		}
+        {
+            DynamicallyLoadedModuleNames.Add("PhysXCooking");
+        }
 
 		if(Target.bCompilePhysX)
-		{
-			// Engine public headers need to know about some types (enums etc.)
-			PublicIncludePathModuleNames.Add("ClothingSystemRuntimeInterface");
-			PublicDependencyModuleNames.Add("ClothingSystemRuntimeInterface");
+        {
+            // Engine public headers need to know about some types (enums etc.)
+            PublicIncludePathModuleNames.Add("ClothingSystemRuntimeInterface");
+            PublicDependencyModuleNames.Add("ClothingSystemRuntimeInterface");
 
 			if (Target.bBuildEditor)
-			{
-				PrivateDependencyModuleNames.Add("ClothingSystemEditorInterface");
-				PrivateIncludePathModuleNames.Add("ClothingSystemEditorInterface");
-			}
-		}
+            {
+                PrivateDependencyModuleNames.Add("ClothingSystemEditorInterface");
+                PrivateIncludePathModuleNames.Add("ClothingSystemEditorInterface");
+            }
+        }
 
 		if ((Target.Platform == UnrealTargetPlatform.Win64) ||
 			(Target.Platform == UnrealTargetPlatform.Win32))
@@ -365,13 +367,13 @@ public class Engine : ModuleRules
 				"libOpus"
 				);
 
-			// Head Mounted Display support
-//			PrivateIncludePathModuleNames.AddRange(new string[] { "HeadMountedDisplay" });
-//			DynamicallyLoadedModuleNames.AddRange(new string[] { "HeadMountedDisplay" });
+            // Head Mounted Display support
+//            PrivateIncludePathModuleNames.AddRange(new string[] { "HeadMountedDisplay" });
+//            DynamicallyLoadedModuleNames.AddRange(new string[] { "HeadMountedDisplay" });
 		}
 
 		if (Target.Platform == UnrealTargetPlatform.HTML5)
-		{
+        {
 			// TODO test this for HTML5 !
 			//AddEngineThirdPartyPrivateStaticDependencies(Target,
 			//		"UEOgg",
@@ -392,13 +394,13 @@ public class Engine : ModuleRules
 		}
 
 		if (Target.Platform == UnrealTargetPlatform.Android)
-		{
+        {
 			AddEngineThirdPartyPrivateStaticDependencies(Target,
 				"UEOgg",
 				"Vorbis",
 				"VorbisFile"
 				);
-		}
+        }
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
@@ -412,8 +414,8 @@ public class Engine : ModuleRules
 
 		if (Target.bCompileRecast)
 		{
-			PrivateDependencyModuleNames.Add("Navmesh");
-			Definitions.Add("WITH_RECAST=1");
+            PrivateDependencyModuleNames.Add("Navmesh");
+            Definitions.Add("WITH_RECAST=1");
 		}
 		else
 		{
@@ -428,5 +430,16 @@ public class Engine : ModuleRules
 		{
 			RuntimeDependencies.Add("$(EngineDir)/Content/Stats/...", StagedFileType.UFS);
 		}
-	}
+
+		// @third party code - BEGIN HairWorks
+		AddEngineThirdPartyPrivateStaticDependencies(Target, "HairWorks");
+		// @third party code - END HairWorks
+
+		// NVCHANGE_BEGIN: Add VXGI
+        if ((Target.Platform == UnrealTargetPlatform.Win64) || (Target.Platform == UnrealTargetPlatform.Win32))
+        {
+            PublicDependencyModuleNames.Add("VXGI");
+        }
+        // NVCHANGE_END: Add VXGI
+    }
 }

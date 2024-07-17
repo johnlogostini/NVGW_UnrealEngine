@@ -13,6 +13,9 @@
 #include "ScenePrivate.h"
 #include "PipelineStateCache.h"
 #include "ClearQuad.h"
+// @third party code - BEGIN HairWorks
+#include "HairWorksRenderer.h"
+// @third party code - END HairWorks
 
 static TAutoConsoleVariable<float> CVarCSMShadowDepthBias(
 	TEXT("r.Shadow.CSMDepthBias"),
@@ -293,7 +296,7 @@ static void GetShadowProjectionShaders(
 		case 5: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionFromTranslucencyPS<5> >(); break;
 		default:
 			check(0);
-		}
+	}
 	}
 	else if (ShadowInfo->IsWholeSceneDirectionalShadow())
 	{
@@ -301,7 +304,7 @@ static void GetShadowProjectionShaders(
 
 		if (CVarFilterMethod.GetValueOnRenderThread() == 1)
 		{
-			if (ShadowInfo->CascadeSettings.FadePlaneLength > 0)
+		if (ShadowInfo->CascadeSettings.FadePlaneLength > 0)
 				*OutShadowProjPS = View.ShaderMap->GetShader<TDirectionalPercentageCloserShadowProjectionPS<5, true> >();
 			else
 				*OutShadowProjPS = View.ShaderMap->GetShader<TDirectionalPercentageCloserShadowProjectionPS<5, false> >();
@@ -317,7 +320,7 @@ static void GetShadowProjectionShaders(
 			case 5: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<5, true> >(); break;
 			default:
 				check(0);
-			}
+		}
 		}
 		else
 		{
@@ -330,8 +333,8 @@ static void GetShadowProjectionShaders(
 			case 5: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<5, false> >(); break;
 			default:
 				check(0);
-			}
 		}
+	}
 	}
 	else
 	{
@@ -348,7 +351,7 @@ static void GetShadowProjectionShaders(
 			case 5: *OutShadowProjPS = View.ShaderMap->GetShader<TModulatedShadowProjection<5> >(); break;
 			default:
 				check(0);
-			}
+		}
 		}
 		else
 		{
@@ -358,18 +361,18 @@ static void GetShadowProjectionShaders(
 			}
 			else
 			{
-				switch (Quality)
-				{
-				case 1: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<1, false> >(); break;
-				case 2: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<2, false> >(); break;
-				case 3: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<3, false> >(); break;
-				case 4: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<4, false> >(); break;
-				case 5: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<5, false> >(); break;
-				default:
-					check(0);
+			switch (Quality)
+			{
+			case 1: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<1, false> >(); break;
+			case 2: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<2, false> >(); break;
+			case 3: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<3, false> >(); break;
+			case 4: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<4, false> >(); break;
+			case 5: *OutShadowProjPS = View.ShaderMap->GetShader<TShadowProjectionPS<5, false> >(); break;
+			default:
+				check(0);
 				}
-			}
 		}
+	}
 	}
 
 	check(*OutShadowProjVS);
@@ -582,8 +585,12 @@ void FProjectedShadowInfo::SetupProjectionStencilMask(
 	FRHICommandListImmediate& RHICmdList, 
 	const FViewInfo* View, 
 	const TArray<FVector4, TInlineAllocator<8>>& FrustumVertices,
-	bool bMobileModulatedProjections, 
-	bool bCameraInsideShadowFrustum) const
+	bool bMobileModulatedProjections,
+	bool bCameraInsideShadowFrustum
+	// @third party code - BEGIN HairWorks
+	, bool bHairPass
+	// @third party code - END HairWorks
+) const
 {
 	FDrawingPolicyRenderState DrawRenderState(*View);
 
@@ -592,7 +599,9 @@ void FProjectedShadowInfo::SetupProjectionStencilMask(
 	DrawRenderState.SetBlendState(TStaticBlendState<CW_NONE>::GetRHI());
 
 	// If this is a preshadow, mask the projection by the receiver primitives.
-	if (bPreShadow || bSelfShadowOnly)
+	// @third party code - BEGIN HairWorks
+	if((bPreShadow || bSelfShadowOnly) && !bHairPass)	// For hairs, we use the same method of dynamic shadow to handle pre-shadow.
+	// @third party code - END HairWorks
 	{
 		SCOPED_DRAW_EVENTF(RHICmdList, EventMaskSubjects, TEXT("Stencil Mask Subjects"));
 
@@ -619,6 +628,23 @@ void FProjectedShadowInfo::SetupProjectionStencilMask(
 
 		FDepthDrawingPolicyFactory::ContextType Context(DDM_AllOccluders, false);
 
+#if WITH_FLEX
+		bool bFlexDepthMasking = GFlexFluidSurfaceRenderer.IsDepthMaskingRequired(ParentSceneInfo->Proxy);
+
+		if (!bFlexDepthMasking)
+		{
+			for (int32 MeshBatchIndex = 0; MeshBatchIndex < DynamicMeshElements.Num(); MeshBatchIndex++)
+			{
+				const FMeshBatchAndRelevance& MeshBatchAndRelevance = DynamicMeshElements[MeshBatchIndex];
+				const FMeshBatch& MeshBatch = *MeshBatchAndRelevance.Mesh;
+				FDepthDrawingPolicyFactory::DrawDynamicMesh(RHICmdList, *View, Context, MeshBatch, false, DrawRenderState, MeshBatchAndRelevance.PrimitiveSceneProxy, MeshBatch.BatchHitProxyId, false, bIsInstancedStereoEmulated);
+			}
+		}
+		else
+		{
+			GFlexFluidSurfaceRenderer.RenderDepth(RHICmdList, ParentSceneInfo->Proxy, *View);
+		}
+#else
 		for (int32 MeshBatchIndex = 0; MeshBatchIndex < DynamicMeshElements.Num(); MeshBatchIndex++)
 		{
 			const FMeshBatchAndRelevance& MeshBatchAndRelevance = DynamicMeshElements[MeshBatchIndex];
@@ -626,6 +652,7 @@ void FProjectedShadowInfo::SetupProjectionStencilMask(
 
 			FDepthDrawingPolicyFactory::DrawDynamicMesh(RHICmdList, *View, Context, MeshBatch, true, DrawRenderState, MeshBatchAndRelevance.PrimitiveSceneProxy, MeshBatch.BatchHitProxyId, false, bIsInstancedStereoEmulated);
 		}
+#endif
 
 		// Pre-shadows mask by receiver elements, self-shadow mask by subject elements.
 		// Note that self-shadow pre-shadows still mask by receiver elements.
@@ -821,6 +848,9 @@ void FProjectedShadowInfo::SetupProjectionStencilMask(
 			for (int32 MeshBatchIndex = 0; MeshBatchIndex < DynamicSubjectMeshElements.Num(); MeshBatchIndex++)
 			{
 				const FMeshBatchAndRelevance& MeshBatchAndRelevance = DynamicSubjectMeshElements[MeshBatchIndex];
+#if WITH_FLEX
+		if (!MeshBatchAndRelevance.PrimitiveSceneProxy->IsFlexFluidSurface())
+		{
 				const FMeshBatch& MeshBatch = *MeshBatchAndRelevance.Mesh;
 				FDepthDrawingPolicyFactory::DrawDynamicMesh(RHICmdList, *View, Context, MeshBatch, true, DrawRenderState, MeshBatchAndRelevance.PrimitiveSceneProxy, MeshBatch.BatchHitProxyId);
 			}
@@ -842,10 +872,19 @@ void FProjectedShadowInfo::SetupProjectionStencilMask(
 				);
 			}
 		}
+#else
+		const FMeshBatch& MeshBatch = *MeshBatchAndRelevance.Mesh;
+		FShadowDepthDrawingPolicyFactory::DrawDynamicMesh(RHICmdList, *FoundView, Context, MeshBatch, false, true, MeshBatchAndRelevance.PrimitiveSceneProxy, MeshBatch.BatchHitProxyId);
+#endif
+	}
 	}
 }
 
-void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const FViewInfo* View, bool bProjectingForForwardShading, bool bMobileModulatedProjections) const
+void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const FViewInfo* View, bool bProjectingForForwardShading, bool bMobileModulatedProjections
+	// @third party code - BEGIN HairWorks
+	, bool bHairPass
+	// @third party code - END HairWorks
+) const
 {
 #if WANTS_DRAW_MESH_EVENTS
 	FString EventName;
@@ -878,7 +917,11 @@ void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList
 
 	if (!bDepthBoundsTestEnabled)
 	{
-		SetupProjectionStencilMask(RHICmdList, View, FrustumVertices, bMobileModulatedProjections, bCameraInsideShadowFrustum);
+		SetupProjectionStencilMask(RHICmdList, View, FrustumVertices, bMobileModulatedProjections, bCameraInsideShadowFrustum
+			// @third party code - BEGIN HairWorks
+			, bHairPass
+			// @third party code - END HairWorks
+		);
 	}
 
 	// solid rasterization w/ back-face culling.
@@ -970,7 +1013,7 @@ void FProjectedShadowInfo::RenderProjection(FRHICommandListImmediate& RHICmdList
 
 		ShadowProjVS->SetParameters(RHICmdList, *View, this);
 		ShadowProjPS->SetParameters(RHICmdList, ViewIndex, *View, this);
-	}
+		}
 
 	if (IsWholeSceneDirectionalShadow())
 	{
@@ -1388,6 +1431,19 @@ bool FSceneRenderer::RenderShadowProjections(FRHICommandListImmediate& RHICmdLis
 	FVisibleLightInfo& VisibleLightInfo = VisibleLightInfos[LightSceneInfo->Id];
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
+	// @third party code - BEGIN HairWorks
+	bool bHairPass = false;
+
+RenderForHair:
+	SCOPED_CONDITIONAL_DRAW_EVENT(RHICmdList, RenderForHair, bHairPass);
+
+	if(bHairPass)
+	{
+		FSceneRenderTargets::Get(RHICmdList).SceneDepthZ.Swap(HairWorksRenderer::HairRenderTargets->HairDepthZForShadow);
+		ScreenShadowMaskTexture = HairWorksRenderer::HairRenderTargets->LightAttenuation;
+	}
+	// @third party code - END HairWorks
+	
 	if (bMobileModulatedProjections)
 	{
 		SceneContext.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
@@ -1417,6 +1473,11 @@ bool FSceneRenderer::RenderShadowProjections(FRHICommandListImmediate& RHICmdLis
 
 			if (ProjectedShadowInfo->bRayTracedDistanceField)
 			{
+				// @third party code - END HairWorks
+				if(bHairPass)
+					continue;
+				// @third party code - BEGIN HairWorks
+
 				ProjectedShadowInfo->RenderRayTracedDistanceFieldProjection(RHICmdList, View, ScreenShadowMaskTexture, bProjectingForForwardShading);
 			}
 			else if (ProjectedShadowInfo->bAllocated)
@@ -1430,19 +1491,119 @@ bool FSceneRenderer::RenderShadowProjections(FRHICommandListImmediate& RHICmdLis
 					}
 					else 
 					{
-						ProjectedShadowInfo->RenderProjection(RHICmdList, ViewIndex, &View, bProjectingForForwardShading, bMobileModulatedProjections);
+						ProjectedShadowInfo->RenderProjection(RHICmdList, ViewIndex, &View, bProjectingForForwardShading, bMobileModulatedProjections
+						// @third party code - BEGIN HairWorks
+						, bHairPass
+						// @third party code - END HairWorks
+						);
+					}
 					}
 				}
 			}
-		}
 
 		// Reset the scissor rectangle.
 		RHICmdList.SetScissorRect(false, 0, 0, 0, 0);
 	}
 
+	// @third party code - BEGIN HairWorks
+	if(bHairPass)
+	{
+		FSceneRenderTargets::Get(RHICmdList).SceneDepthZ.Swap(HairWorksRenderer::HairRenderTargets->HairDepthZForShadow);
+	}
+
+	if(!bHairPass && HairWorksRenderer::ViewsHasHair(Views))
+	{
+		bHairPass = true;
+		goto RenderForHair;
+	}
+	// @third party code - END HairWorks
+
 	return true;
+}	
+
+// @third party code - BEGIN HairWorks
+bool FProjectedShadowInfo::ShouldRenderForHair(const FViewInfo& View)const
+{
+	// If no hair is visible, skip. Also skip self shadow.
+	if(!View.VisibleHairs.Num() || bSelfShadowOnly)
+		return false;
+
+	static TAutoConsoleVariable<int> CVarHairCullDynamicShadow(TEXT("r.HairWorks.CullDynamicShadow"), 1, TEXT(""), ECVF_RenderThreadSafe);
+
+	// Check for point light
+	if(bOnePassPointLightShadow)
+	{
+		if(bRayTracedDistanceField)
+		{
+			if(CVarHairCullDynamicShadow.GetValueOnRenderThread() == 0)
+				return true;
+
+			for(auto* PrimitiveInfo : View.VisibleHairs)	// This may not be efficient if there are too many hairs.
+			{
+				auto& HairBounds = PrimitiveInfo->Proxy->GetBounds();
+
+				if(ShadowBounds.Intersects(HairBounds.GetSphere()))
+					return true;
+			}
+
+			return false;
+		}
+		else
+		{
+			for(auto* PrimitiveSceneInfo : DynamicSubjectPrimitives)
+			{
+				auto& ViewRelevance = View.PrimitiveViewRelevanceMap[PrimitiveSceneInfo->GetIndex()];
+				if(ViewRelevance.bHairWorks)
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	// Check pre-shadow. Whether any hair is receiver.
+	if(bPreShadow)
+	{
+		for(auto* PrimitiveSceneInfo : ReceiverPrimitives)
+		{
+			auto& ViewRelevance = View.PrimitiveViewRelevanceMap[PrimitiveSceneInfo->GetIndex()];
+			if(ViewRelevance.bHairWorks)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+	// Check dynamic shadow. Whether receiver frustum touches any visible hairs.This may not be efficient if there are too many hairs.
+	else
+	{
+		if(CVarHairCullDynamicShadow.GetValueOnRenderThread() == 0)
+			return true;
+
+		for(auto* PrimitiveInfo : View.VisibleHairs)
+		{
+			auto& HairBounds = PrimitiveInfo->Proxy->GetBounds();
+
+			if(bWholeSceneShadow && bDirectionalLight && !bRayTracedDistanceField)
+			{
+				if(CascadeSettings.ShadowBoundsAccurate.IntersectBox(HairBounds.Origin, HairBounds.BoxExtent))
+					return true;
+			}
+			else
+			{
+				if(ReceiverFrustum.IntersectBox(HairBounds.Origin + PreShadowTranslation, HairBounds.BoxExtent))
+					return true;
+			}
+		}
+
+		return false;
+	}
 }
-	
+// @third party code - END HairWorks
+
 bool FDeferredShadingSceneRenderer::RenderShadowProjections(FRHICommandListImmediate& RHICmdList, const FLightSceneInfo* LightSceneInfo, IPooledRenderTarget* ScreenShadowMaskTexture, bool& bInjectedTranslucentVolume)
 {
 	SCOPED_NAMED_EVENT(FDeferredShadingSceneRenderer_RenderShadowProjections, FColor::Emerald);
@@ -1453,6 +1614,12 @@ bool FDeferredShadingSceneRenderer::RenderShadowProjections(FRHICommandListImmed
 	FVisibleLightInfo& VisibleLightInfo = VisibleLightInfos[LightSceneInfo->Id];
 
 	FSceneRenderer::RenderShadowProjections(RHICmdList, LightSceneInfo, ScreenShadowMaskTexture, false, false);
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	TArray<FProjectedShadowInfo*, SceneRenderingAllocator> DirectionalShadows;
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 
 	for (int32 ShadowIndex = 0; ShadowIndex < VisibleLightInfo.ShadowsToProject.Num(); ShadowIndex++)
 	{
@@ -1471,8 +1638,33 @@ bool FDeferredShadingSceneRenderer::RenderShadowProjections(FRHICommandListImmed
 			SCOPED_DRAW_EVENT(RHICmdList, InjectTranslucentVolume);
 			// Inject the shadowed light into the translucency lighting volumes
 			InjectTranslucentVolumeLighting(RHICmdList, *LightSceneInfo, ProjectedShadowInfo);
+			// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+			if (LightSceneInfo->Proxy->IsNVVolumetricLighting())
+			{
+				if (!ProjectedShadowInfo->IsWholeSceneDirectionalShadow())
+				{
+					NVVolumetricLightingRenderVolume(RHICmdList, LightSceneInfo, ProjectedShadowInfo);
+				}
+				else
+				{
+					DirectionalShadows.Add(ProjectedShadowInfo);
+				}
+			}
+#endif
+			// NVCHANGE_END: Nvidia Volumetric Lighting
 		}
 	}
+
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	if (DirectionalShadows.Num() > 0)
+	{
+		NVVolumetricLightingRenderVolume(RHICmdList, LightSceneInfo, DirectionalShadows);
+	}
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 
 	RenderCapsuleDirectShadows(RHICmdList, *LightSceneInfo, ScreenShadowMaskTexture, VisibleLightInfo.CapsuleShadowsToProject, false);
 

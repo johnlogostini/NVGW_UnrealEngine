@@ -189,6 +189,11 @@ public:
 
 	/** Get the preview mesh for this physics asset */
 	ENGINE_API USkeletalMesh* GetPreviewMesh() const;
+
+//#nv begin #Blast Physics asset change broadcast
+	DECLARE_MULTICAST_DELEGATE_OneParam(FRefreshPhysicsAssetChangeDelegate, const UPhysicsAsset*);
+	ENGINE_API static FRefreshPhysicsAssetChangeDelegate OnRefreshPhysicsAssetChange;
+//nv end
 #endif
 
 private:

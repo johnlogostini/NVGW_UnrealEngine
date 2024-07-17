@@ -39,6 +39,11 @@
 #include "PhysicsEngine/BodySetup.h"
 #include "Engine/LODActor.h"
 
+// WaveWorks Start
+#include "Engine/WaveWorks.h"
+#include "WaveWorksResource.h"
+// WaveWorks End
+
 /** If true, optimized depth-only index buffers are used for shadow rendering. */
 static bool GUseShadowIndexBuffer = true;
 
@@ -1655,6 +1660,131 @@ FLODMask FStaticMeshSceneProxy::GetLODMask(const FSceneView* View) const
 	
 	return Result;
 }
+
+// WaveWorks Start
+FWaveWorksStaticMeshSceneProxy::FWaveWorksStaticMeshSceneProxy(UWaveWorksStaticMeshComponent* InComponent, bool bForceLODsShareStaticLighting) 
+	: FStaticMeshSceneProxy(InComponent, bForceLODsShareStaticLighting)
+	, WaveWorksStaticMeshComponent(InComponent)
+{
+	WaveWorksResource = (InComponent->WaveWorksAsset != nullptr) ? (InComponent->WaveWorksAsset->GetWaveWorksResource()) : nullptr;
+}
+
+FWaveWorksStaticMeshSceneProxy::~FWaveWorksStaticMeshSceneProxy()
+{
+	if (nullptr != WaveWorksResource)
+		WaveWorksResource->CustomRemoveFromDeferredUpdateList();
+}
+
+FPrimitiveViewRelevance FWaveWorksStaticMeshSceneProxy::GetViewRelevance(const FSceneView* View) const
+{
+	if (nullptr != WaveWorksResource)
+		WaveWorksResource->CustomAddToDeferredUpdateList();
+
+	return FStaticMeshSceneProxy::GetViewRelevance(View);
+}
+
+void FWaveWorksStaticMeshSceneProxy::SampleDisplacements_GameThread(TArray<FVector> InSamplePoints, 
+	FWaveWorksSampleDisplacementsDelegate VectorArrayDelegate)
+{
+	checkSlow(IsInGameThread());
+	if (!WaveWorksResource)
+		return;
+
+	ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
+		SampleWaveWorksDisplacements,
+		FWaveWorksRHIRef, WaveWorksRHI, WaveWorksResource->GetWaveWorksRHI(),
+		TArray<FVector>, InSamplePoints, InSamplePoints,
+		FWaveWorksSampleDisplacementsDelegate, OnRecieveDisplacementDelegate, VectorArrayDelegate,
+		{
+			if (NULL != WaveWorksRHI)
+			{
+				WaveWorksRHI->GetDisplacements(InSamplePoints, OnRecieveDisplacementDelegate);
+			}
+		});
+}
+
+void FWaveWorksStaticMeshSceneProxy::GetIntersectPointWithRay_GameThread(
+	FVector InOriginPoint,
+	FVector InDirection,
+	float	SeaLevel,
+	FWaveWorksRaycastResultDelegate OnRecieveIntersectPointDelegate)
+{
+	checkSlow(IsInGameThread());
+	if (!WaveWorksResource)
+		return;
+
+	ENQUEUE_UNIQUE_RENDER_COMMAND_FIVEPARAMETER(
+		GetIntersectPointWithRay,
+		FWaveWorksRHIRef, WaveWorksRHI, WaveWorksResource->GetWaveWorksRHI(),
+		FVector, InOriginPoint, InOriginPoint,
+		FVector, InDirection, InDirection,
+		float, SeaLevel, SeaLevel,
+		FWaveWorksRaycastResultDelegate, OnRecieveIntersectPointDelegate, OnRecieveIntersectPointDelegate,
+		{
+			if (NULL != WaveWorksRHI)
+			{
+				WaveWorksRHI->GetIntersectPointWithRay(InOriginPoint, InDirection, SeaLevel, OnRecieveIntersectPointDelegate);
+			}
+		});
+}
+
+FPrimitiveSceneProxy* UWaveWorksStaticMeshComponent::CreateSceneProxy()
+{
+	if (GetStaticMesh() == NULL
+		|| GetStaticMesh()->RenderData == NULL
+		|| GetStaticMesh()->RenderData->LODResources.Num() == 0
+		|| GetStaticMesh()->RenderData->LODResources[0].VertexBuffer.GetNumVertices() == 0)
+	{
+		return NULL;
+	}
+
+	FPrimitiveSceneProxy* Proxy = ::new FWaveWorksStaticMeshSceneProxy(this, false);
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	SendRenderDebugPhysics(Proxy);
+#endif
+
+	return Proxy;
+}
+
+void UWaveWorksStaticMeshComponent::SetWindVector(const FVector2D& windVector)
+{
+	if (!WaveWorksAsset)
+		return;
+
+	WaveWorksAsset->WindDirection = windVector;
+}
+
+void UWaveWorksStaticMeshComponent::SetWindSpeed(const float& windSpeed)
+{
+	if (!WaveWorksAsset)
+		return;
+
+	WaveWorksAsset->WindSpeed = windSpeed;
+}
+
+void UWaveWorksStaticMeshComponent::SampleDisplacements(TArray<FVector> InSamplePoints, 
+	FWaveWorksSampleDisplacementsDelegate VectorArrayDelegate)
+{
+	if (!SceneProxy)
+		return;
+
+	FWaveWorksStaticMeshSceneProxy* WaveWorksStaticMeshSceneProxy = static_cast<FWaveWorksStaticMeshSceneProxy*>(SceneProxy);
+	WaveWorksStaticMeshSceneProxy->SampleDisplacements_GameThread(InSamplePoints, VectorArrayDelegate);
+}
+
+void UWaveWorksStaticMeshComponent::GetIntersectPointWithRay(
+	FVector InOriginPoint,
+	FVector InDirection,
+	FWaveWorksRaycastResultDelegate OnRecieveIntersectPointDelegate)
+{
+	if (!SceneProxy)
+		return;
+
+	FWaveWorksStaticMeshSceneProxy* WaveWorksStaticMeshSceneProxy = static_cast<FWaveWorksStaticMeshSceneProxy*>(SceneProxy);
+	WaveWorksStaticMeshSceneProxy->GetIntersectPointWithRay_GameThread(InOriginPoint, InDirection, GetOwner()->GetActorLocation().Z / 100.0f, OnRecieveIntersectPointDelegate);
+}
+
+// WaveWorks End
 
 FPrimitiveSceneProxy* UStaticMeshComponent::CreateSceneProxy()
 {

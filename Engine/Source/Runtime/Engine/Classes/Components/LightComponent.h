@@ -19,6 +19,20 @@ class UMaterialInterface;
 class UPrimitiveComponent;
 class UTextureLightProfile;
 
+
+// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+UENUM()
+namespace ETessellationQuality
+{
+	enum Type
+	{
+		LOW,
+		MEDIUM,
+		HIGH,
+	};
+}
+// NVCHANGE_END: Nvidia Volumetric Lighting
+
 /** 
  * A texture containing depth values of static objects that was computed during the lighting build.
  * Used by Stationary lights to shadow translucency.
@@ -196,8 +210,59 @@ class ENGINE_API ULightComponent : public ULightComponentBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=DistanceFieldShadows, meta=(UIMin = "0", UIMax = ".1"), AdvancedDisplay)
 	float RayStartOffsetDepthScale;
 
-public:
+	// NvFlow begin
+	/** If true, then Flow grid shadow is generated depended of FlowGridShadowChannel match. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NvFlow")
+	bool bFlowGridShadowEnabled;
+
+	/** If value is the same as ShadowChannel in FlowGridComponent, then this Light is used to generate Flow grid shadow. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NvFlow")
+	int32 FlowGridShadowChannel;
+	// NvFlow end
+
+	// NVCHANGE_BEGIN: Add VXGI
+
+		/**
+	* Whether to let this light cast VXGI indirect lighting and reflections. Only available for Movable lights.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI, meta = (DisplayName = "VXGI Indirect Lighting"))
+	bool bCastVxgiIndirectLighting;
+
+	// NVCHANGE_END: Add VXGIpublic:
 	/** Set intensity of the light */
+
+
+
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+	/** If enable the nvidia volumetric lighting for this light */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = NvidiaVolumetricLighting)
+		uint32 bEnableVolumetricLighting : 1;
+
+	/** If true, use the custom volumetric lighting color/intensity, if false, use the light color/intensity. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = NvidiaVolumetricLighting)
+		uint32 bUseVolumetricLightingColor : 1;
+
+	UPROPERTY(BlueprintReadOnly, interp, Category = NvidiaVolumetricLighting, meta = (UIMin = "0.0", UIMax = "20.0"))
+		float VolumetricLightingIntensity;
+
+	UPROPERTY(BlueprintReadOnly, interp, Category = NvidiaVolumetricLighting, meta = (HideAlphaChannel))
+		FColor VolumetricLightingColor;
+
+	/** Target minimum ray width in pixels */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = NvidiaVolumetricLighting)
+		float TargetRayResolution;
+
+	/** Amount to bias ray geometry depth */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = NvidiaVolumetricLighting)
+		float DepthBias;
+
+	/** Quality level of tessellation to use */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = NvidiaVolumetricLighting)
+		TEnumAsByte<ETessellationQuality::Type> TessQuality;
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+
 	UFUNCTION(BlueprintCallable, Category="Rendering|Components|Light")
 	void SetIntensity(float NewIntensity);
 
@@ -348,6 +413,24 @@ public:
 	{
 		return NULL;
 	}
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	virtual void GetNvVlAttenuation(int32& OutAttenuationMode, FVector4& OutAttenuationFactors) const
+	{
+		OutAttenuationMode = 0;
+		OutAttenuationFactors = FVector4(0);
+	}
+
+	virtual void GetNvVlFalloff(int32& OutFalloffMode, FVector2D& OutFalloffAngleAndPower) const
+	{
+		OutFalloffMode = 0;
+		OutFalloffAngleAndPower = FVector2D::ZeroVector;
+	}
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+
 
 protected:
 	//~ Begin UActorComponent Interface

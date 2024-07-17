@@ -543,6 +543,19 @@ float UPrimitiveComponent::GetMass() const
 	return 0.0f;
 }
 
+// WaveWorks Start
+float UPrimitiveComponent::GetVolume() const
+{
+	if (FBodyInstance* BI = GetBodyInstance())
+	{
+		WarnInvalidPhysicsOperations(LOCTEXT("GetVolume", "GetVolume"), BI, NAME_None);
+		return BI->GetBodyVolume();
+	}
+
+	return 0.0f;
+}
+// WaveWorks End
+
 FVector UPrimitiveComponent::GetInertiaTensor(FName BoneName /* = NAME_None */) const 
 {
 	if(FBodyInstance* BI = GetBodyInstance(BoneName))

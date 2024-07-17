@@ -109,6 +109,17 @@ void PrefilterPlanarReflectionPS(
 		float ValidContentMask = 1 - SceneColorValue.a;
 		OutColor = float4(SceneColorValue.xyz, ValidContentMask);
 	}
+
+// WaveWorks Start
+	if (PlanarReflectionWaveWorksParameters.w > 0)
+	{
+		float CenterDistanceToPlane = -(dot(View.WorldCameraOrigin, ReflectionPlane.xyz) - ReflectionPlane.w) / dot(normalize(ScreenVector), ReflectionPlane.xyz);
+		float CenterSceneDepth = CalcSceneDepth(InUV);
+		float CenterReflectionDistance = max(CenterSceneDepth - CenterDistanceToPlane, 0);
+
+		OutColor *= float4((pow(2.718, PlanarReflectionWaveWorksParameters.xyz * -PlanarReflectionWaveWorksParameters.w * CenterReflectionDistance / 100.0)), 1.0);
+	}
+// WaveWorks End
 }
 
 void PlanarReflectionPS(

@@ -1025,11 +1025,18 @@ void FD3D12DynamicRHI::RHIDiscardRenderTargets(bool Depth, bool Stencil, uint32 
 
 void FD3D12CommandContext::RHISetRenderTargetsAndClear(const FRHISetRenderTargetsInfo& RenderTargetsInfo)
 {
+	// Here convert to FUnorderedAccessViewRHIParamRef* in order to call RHISetRenderTargets
+	FUnorderedAccessViewRHIParamRef UAVs[MaxSimultaneousUAVs] = {};
+	for (int32 UAVIndex = 0; UAVIndex < RenderTargetsInfo.NumUAVs; ++UAVIndex)
+	{
+		UAVs[UAVIndex] = RenderTargetsInfo.UnorderedAccessView[UAVIndex].GetReference();
+	}
+
 	this->RHISetRenderTargets(RenderTargetsInfo.NumColorRenderTargets,
 		RenderTargetsInfo.ColorRenderTarget,
 		&RenderTargetsInfo.DepthStencilRenderTarget,
-		0,
-		nullptr);
+		RenderTargetsInfo.NumUAVs,
+		UAVs);
 	if (RenderTargetsInfo.bClearColor || RenderTargetsInfo.bClearStencil || RenderTargetsInfo.bClearDepth)
 	{
 		FLinearColor ClearColors[MaxSimultaneousRenderTargets];
@@ -2092,3 +2099,21 @@ void FD3D12CommandContext::RHIBroadcastTemporalEffect(const FName& InEffectName,
 	}
 #endif
 }
+// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+
+void FD3D12CommandContext::RHIRenderHBAO(
+	const FTextureRHIParamRef SceneDepthTextureRHI,
+	const FMatrix& ProjectionMatrix,
+	const FTextureRHIParamRef SceneNormalTextureRHI,
+	const FMatrix& ViewMatrix,
+	const FTextureRHIParamRef SceneColorTextureRHI,
+	const GFSDK_SSAO_Parameters& BaseParams
+)
+{
+	// Empty method because HBAO+ doesn't support DX12 yet.
+	// Just override the base so that the engine doesn't crash.
+}
+
+#endif
+// NVCHANGE_END: Add HBAO+

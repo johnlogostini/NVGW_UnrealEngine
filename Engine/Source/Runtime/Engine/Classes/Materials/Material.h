@@ -130,6 +130,21 @@ enum EMaterialDecalResponse
 	MDR_MAX
 };
 
+// NVCHANGE_BEGIN: Add VXGI
+UENUM()
+enum EVxgiMaterialSamplingRate
+{
+	VXGIMSR_FixedDefault UMETA(DisplayName = "Default (1X)"),
+	VXGIMSR_Fixed2X UMETA(DisplayName = "Fixed 2X"),
+	VXGIMSR_Fixed3X UMETA(DisplayName = "Fixed 3X"),
+	VXGIMSR_Fixed4X UMETA(DisplayName = "Fixed 4X"),
+	VXGIMSR_AdaptiveDefault UMETA(DisplayName = "Adaptive"),
+	VXGIMSR_AdaptiveGE2 UMETA(DisplayName = "Adaptive >= 2X"),
+	VXGIMSR_AdaptiveGE4 UMETA(DisplayName = "Adaptive >= 4X"),
+	VXGIMSR_MAX,
+};
+// NVCHANGE_END: Add VXGI
+
 // Material input structs.
 //@warning: manually mirrored in MaterialShared.h
 #if !CPP      //noexport struct
@@ -617,6 +632,20 @@ public:
 	uint32 bUsedWithStaticLighting:1;
 
 	/** 
+	* Indicates that the material and its instances can be use with flex fluid surfaces
+	* This will result in the shaders required to support flex fluid surfaces being compiled which will increase shader compile time and memory usage.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Usage)
+	uint32 bUsedWithFlexFluidSurfaces : 1;
+
+	/**
+	* Indicates that the material and its instances can be use with flex deformable meshes.
+	* This will result in the shaders required to support flex deformation being compiled which will increase shader compile time and memory usage.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Usage)
+	uint32 bUsedWithFlexMeshes : 1;
+
+	/** 
 	 * Indicates that the material and its instances can be use with morph targets
 	 * This will result in the shaders required to support morph targets being compiled which will increase shader compile time and memory usage.
 	 */
@@ -664,6 +693,73 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Usage, AdvancedDisplay)
 	uint32 bAutomaticallySetUsageInEditor:1;
+
+	// NVCHANGE_BEGIN: Add VXGI
+
+	/**
+	* Indicates that the material and its instances can use VxgiTraceCone function. Only applies to translucent materials.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Translucency)
+	uint32 bVxgiConeTracingEnable : 1;
+
+	/**
+	* Indicates that the material and its instances can be used with VXGI scene voxelization.
+	* This will result in the shaders required to support VXGI being compiled which will increase shader compile time and memory usage.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI)
+	uint32 bUsedWithVxgiVoxelization : 1;
+
+	/**
+	* Indicates that the material has tessellation enabled in MaterialTessellationMode and should be voxelized with tessellation enabled.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI)
+	uint32 bVxgiAllowTesselationDuringVoxelization : 1;
+
+	/**
+	* Indicates that any light emitted should be emitted in all directions (useful for emissive light sources). Set this to true for small objects.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI)
+	uint32 bVxgiOmniDirectional : 1;
+
+	/**
+	* Antialiases the emittance values from this material.
+	* When proportional emittance is enabled, the light contribution of each sample covered by emissive objects is distributed between two adjacent voxels in Z direction, proportionally to the position of that sample relative to those voxels.
+	* With it enabled, downsampled emittance is not equal to voxelized emittance, and changes are sometimes visible when you move the camera.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI)
+	uint32 bVxgiProportionalEmittance : 1;
+
+	/**
+	* Controls the use of coverage supersampling for emissive voxelization.
+	* On Maxwell, HW conservative raster is used for supersampling, which is fast and the results are accurate;
+	* On other GPUs, SW conservative raster by triangle expansion is used, which is much slower.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI)
+	uint32 bVxgiCoverageSupersampling : 1;
+
+	/**
+	* A multiplier for material sampling rate during emittance voxelization, basically for rasterization resolution.
+	* It's useful to use higher sampling rates in case shading results cannot be filtered well enough with once-per-voxel shading.
+	* That happens for example with materials that have binary masks over textures or colors, because the mask cannot be filtered
+	* with standard texture sampling.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI)
+	TEnumAsByte<enum EVxgiMaterialSamplingRate> VxgiMaterialSamplingRate;
+
+	/**
+	* When enabled, each covered sample position in Z direction by a pseudo-random offset.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI)
+	FVector2D VxgiOpacityNoiseScaleBias;
+
+	/**
+	* Opacity voxelization thickness in voxels. In the range [0..2].
+	* Can be useful to strengthen contact occlusion for solid objects, with a performance hit.
+	*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = VXGI, meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	float VxgiVoxelizationThickness;
+
+	// NVCHANGE_END: Add VXGI
 
 	/* Forces the material to be completely rough. Saves a number of instructions and one sampler. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Material, AdvancedDisplay)
@@ -909,6 +1005,11 @@ public:
 	ENGINE_API virtual bool IsDitheredLODTransition() const override;
 	ENGINE_API virtual bool IsTranslucencyWritingCustomDepth() const override;
 	ENGINE_API virtual bool IsMasked() const override;
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	ENGINE_API virtual FVxgiMaterialProperties GetVxgiMaterialProperties() const override;
+#endif
+	// NVCHANGE_END: Add VXGI
 	ENGINE_API virtual bool IsUIMaterial() const { return MaterialDomain == MD_UI; }
 	ENGINE_API virtual bool IsPostProcessMaterial() const { return MaterialDomain == MD_PostProcess; }
 	ENGINE_API virtual USubsurfaceProfile* GetSubsurfaceProfile_Internal() const override;

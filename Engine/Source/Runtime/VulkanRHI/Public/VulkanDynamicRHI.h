@@ -250,6 +250,19 @@ public:
 	virtual void RHIAliasTextureResources(FTextureRHIParamRef DestTexture, FTextureRHIParamRef SrcTexture);
 
 
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+	// Vulkan TODO
+#if WITH_NVVOLUMETRICLIGHTING
+	virtual void ClearStateCache() final override {}
+	virtual bool GetPlatformDesc(NvVl::PlatformDesc& PlatformDesc) final override { return false; }
+	virtual void GetPlatformRenderCtx(NvVl::PlatformRenderCtx& PlatformRenderCtx) final override {}
+	virtual void GetPlatformShaderResource(FTextureRHIParamRef TextureRHI, NvVl::PlatformShaderResource& PlatformShaderResource) final override {}
+	virtual void GetPlatformRenderTarget(FTextureRHIParamRef TextureRHI, NvVl::PlatformRenderTarget& PlatformRenderTarget) final override {}
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+
+
 	inline uint32 GetPresentCount() const
 	{
 		return PresentCount;

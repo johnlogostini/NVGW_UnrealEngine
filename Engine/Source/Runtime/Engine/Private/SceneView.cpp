@@ -640,6 +640,15 @@ FSceneView::FSceneView(const FSceneViewInitOptions& InitOptions)
 	, AntiAliasingMethod(AAM_None)
 	, ForwardLightingResources(nullptr)
 	, FeatureLevel(InitOptions.ViewFamily ? InitOptions.ViewFamily->GetFeatureLevel() : GMaxRHIFeatureLevel)
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	, bEnableVxgiForSceneCapture(false)
+	, bIsVxgiVoxelization(false)
+	, VxgiVoxelizationPass(0)
+	, VxgiViewIndex(0)
+	, bVxgiAmbientOcclusionMode(false)
+#endif
+	// NVCHANGE_END: Add VXGI
 {	
 	check(UnscaledViewRect.Min.X >= 0);
 	check(UnscaledViewRect.Min.Y >= 0);
@@ -1375,6 +1384,89 @@ void FSceneView::OverridePostProcessSettings(const FPostProcessSettings& Src, fl
 		LERP_PP(ScreenSpaceReflectionIntensity);
 		LERP_PP(ScreenSpaceReflectionMaxRoughness);
 
+		// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+		LERP_PP(RayleighTransmittance);
+		LERP_PP(MieColor);
+		LERP_PP(MieTransmittance);
+		LERP_PP(HGColor);
+		LERP_PP(HGTransmittance);
+		LERP_PP(IsotropicColor);
+		LERP_PP(IsotropicTransmittance);
+		LERP_PP(AbsorptionColor);
+		LERP_PP(AbsorptionTransmittance);
+		LERP_PP(FogIntensity);
+		LERP_PP(FogColor);
+		LERP_PP(FogTransmittance);
+#endif
+		// NVCHANGE_END: Nvidia Volumetric Lighting
+
+		// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+		LERP_PP(HBAOPowerExponent);
+		LERP_PP(HBAORadius);
+		LERP_PP(HBAOBias);
+		LERP_PP(HBAOSmallScaleAO);
+		LERP_PP(HBAOBlurSharpness);
+		if (Src.bOverride_HBAOBlurRadius)  Dest.HBAOBlurRadius = Src.HBAOBlurRadius;
+		if (Src.bOverride_HBAOForegroundAOEnable)  Dest.HBAOForegroundAOEnable = Src.HBAOForegroundAOEnable;
+		LERP_PP(HBAOForegroundAODistance);
+		if (Src.bOverride_HBAOBackgroundAOEnable)  Dest.HBAOBackgroundAOEnable = Src.HBAOBackgroundAOEnable;
+		LERP_PP(HBAOBackgroundAODistance);
+#endif
+		// NVCHANGE_END: Add HBAO+
+
+		// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+#define IF_PP_ASSIGN(NAME) if(Src.bOverride_ ## NAME) Dest . NAME = Src . NAME;
+
+		IF_PP_ASSIGN(VxgiDiffuseTracingEnabled);
+		LERP_PP(VxgiDiffuseTracingIntensity);
+		LERP_PP(VxgiMultiBounceIrradianceScale);
+		LERP_PP(VxgiDiffuseTracingNumCones);
+		IF_PP_ASSIGN(bVxgiDiffuseTracingAutoAngle);
+		LERP_PP(VxgiDiffuseTracingSparsity);
+		LERP_PP(VxgiDiffuseTracingConeAngle);
+		IF_PP_ASSIGN(bVxgiDiffuseTracingConeRotation);
+		IF_PP_ASSIGN(bVxgiDiffuseTracingRandomConeOffsets);
+		LERP_PP(VxgiDiffuseTracingConeNormalGroupingFactor);
+		LERP_PP(VxgiDiffuseTracingMaxSamples);
+		LERP_PP(VxgiDiffuseTracingStep);
+		LERP_PP(VxgiDiffuseTracingOpacityCorrectionFactor);
+		LERP_PP(VxgiDiffuseTracingNormalOffsetFactor);
+		LERP_PP(VxgiDiffuseTracingEnvironmentMapTint);
+		IF_PP_ASSIGN(VxgiDiffuseTracingEnvironmentMap);
+		LERP_PP(VxgiDiffuseTracingInitialOffsetBias);
+		LERP_PP(VxgiDiffuseTracingInitialOffsetDistanceFactor);
+		IF_PP_ASSIGN(bVxgiDiffuseTracingTemporalReprojectionEnabled);
+		LERP_PP(VxgiDiffuseTracingTemporalReprojectionPreviousFrameWeight);
+		LERP_PP(VxgiDiffuseTracingTemporalReprojectionMaxDistanceInVoxels);
+		LERP_PP(VxgiDiffuseTracingTemporalReprojectionNormalWeightExponent);
+		IF_PP_ASSIGN(bVxgiDiffuseTracingRefinementEnabled);
+		IF_PP_ASSIGN(bVxgiDiffuseTracingFlipOpacityDirections);
+
+		LERP_PP(VxgiAmbientColor);
+		LERP_PP(VxgiAmbientRange);
+		LERP_PP(VxgiAmbientScale);
+		LERP_PP(VxgiAmbientBias);
+		LERP_PP(VxgiAmbientPowerExponent);
+		LERP_PP(VxgiAmbientDistanceDarkening);
+		LERP_PP(VxgiAmbientMixIntensity);
+
+		IF_PP_ASSIGN(VxgiSpecularTracingEnabled);
+		LERP_PP(VxgiSpecularTracingIntensity);
+		LERP_PP(VxgiSpecularTracingMaxSamples);
+		LERP_PP(VxgiSpecularTracingTracingStep);
+		LERP_PP(VxgiSpecularTracingOpacityCorrectionFactor);
+		LERP_PP(VxgiSpecularTracingInitialOffsetBias);
+		LERP_PP(VxgiSpecularTracingInitialOffsetDistanceFactor);
+		IF_PP_ASSIGN(VxgiSpecularTracingFilter);
+		LERP_PP(VxgiSpecularTracingEnvironmentMapTint);
+		IF_PP_ASSIGN(VxgiSpecularTracingEnvironmentMap);
+		LERP_PP(VxgiSpecularTracingTangentJitterScale);
+#endif
+		// NVCHANGE_END: Add VXGI
+
 		// cubemaps are getting blended additively - in contrast to other properties, maybe we should make that consistent
 		if (Src.AmbientCubemap && Src.bOverride_AmbientCubemapIntensity)
 		{
@@ -1459,6 +1551,131 @@ void FSceneView::OverridePostProcessSettings(const FPostProcessSettings& Src, fl
 		{
 			Dest.AmbientOcclusionRadiusInWS = Src.AmbientOcclusionRadiusInWS;
 		}
+
+
+		// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+		if (Src.bOverride_MieBlendFactor)
+		{
+			float SrcBlendMieHazy = 1.0f - FMath::Abs(1.0f - 2 * Src.MieBlendFactor);
+			float DestBlendMieHazy = 1.0f - FMath::Abs(1.0f - 2 * Dest.MieBlendFactor);
+
+			float SrcBlendMieMurky = FMath::Max(0.0f, 2.0f * Src.MieBlendFactor - 1.0f);
+			float DestBlendMieMurky = FMath::Max(0.0f, 2.0f * Dest.MieBlendFactor - 1.0f);
+
+			float FinalBlendMieHazy = FMath::Lerp(DestBlendMieHazy, SrcBlendMieHazy, Weight);
+			float FinalBlendMieMurky = FMath::Lerp(DestBlendMieMurky, SrcBlendMieMurky, Weight);
+
+			if (FinalBlendMieHazy > 0.0f || FinalBlendMieMurky > 0.0f)
+			{
+				float Sum = FinalBlendMieHazy + FinalBlendMieMurky;
+				FinalBlendMieHazy /= Sum;
+				FinalBlendMieMurky /= Sum;
+			}
+
+			if (FinalBlendMieMurky == 0.0f)
+			{
+				Dest.MieBlendFactor = FinalBlendMieHazy * 0.5f;
+			}
+			else
+			{
+				Dest.MieBlendFactor = 0.5f * (FinalBlendMieMurky + 1.0f);
+			}
+		}
+
+		if (Src.bOverride_HGColor && Src.HGColor != FLinearColor::Black
+			&& Src.bOverride_HGTransmittance && Src.HGTransmittance < 1.0f)
+		{
+			float SrcHGEccentricityRatio = Src.bOverride_HGEccentricityRatio ? Src.HGEccentricityRatio : 0.0f;
+			float SrcHGEccentricity1 = Src.bOverride_HGEccentricity1 ? Src.HGEccentricity1 : 0.0f;
+			float SrcHGEccentricity2 = Src.bOverride_HGEccentricity2 ? Src.HGEccentricity2 : 0.0f;
+
+			// check ratio
+			if (Dest.bOverride_HGEccentricityRatio)
+			{
+				Dest.HGEccentricityRatio = FMath::Lerp(Dest.HGEccentricityRatio, SrcHGEccentricityRatio, Weight);
+
+				if (SrcHGEccentricityRatio == 1.0f)
+				{
+					if (Dest.bOverride_HGEccentricity2)
+					{
+						Dest.HGEccentricity2 = FMath::Lerp(Dest.HGEccentricity2, SrcHGEccentricity2, Weight);
+					}
+					else
+					{
+						Dest.HGEccentricity2 = SrcHGEccentricity2;
+						Dest.bOverride_HGEccentricity2 = true;
+					}
+				}
+				else if (SrcHGEccentricityRatio == 0.0f)
+				{
+					if (Dest.bOverride_HGEccentricity1)
+					{
+						Dest.HGEccentricity1 = FMath::Lerp(Dest.HGEccentricity1, SrcHGEccentricity1, Weight);
+					}
+					else
+					{
+						Dest.HGEccentricity1 = SrcHGEccentricity1;
+						Dest.bOverride_HGEccentricity1 = true;
+					}
+				}
+				else
+				{
+					if (Dest.bOverride_HGEccentricity1)
+					{
+						Dest.HGEccentricity1 = FMath::Lerp(Dest.HGEccentricity1, SrcHGEccentricity1, Weight);
+					}
+					else
+					{
+						Dest.HGEccentricity1 = SrcHGEccentricity1;
+						Dest.bOverride_HGEccentricity1 = true;
+					}
+
+					if (Dest.bOverride_HGEccentricity2)
+					{
+						Dest.HGEccentricity2 = FMath::Lerp(Dest.HGEccentricity2, SrcHGEccentricity2, Weight);
+					}
+					else
+					{
+						Dest.HGEccentricity2 = SrcHGEccentricity2;
+						Dest.bOverride_HGEccentricity2 = true;
+					}
+				}
+			}
+			else
+			{
+				Dest.HGEccentricityRatio = SrcHGEccentricityRatio;
+				Dest.bOverride_HGEccentricityRatio = true;
+
+				if (SrcHGEccentricityRatio == 1.0f)
+				{
+					Dest.HGEccentricity2 = SrcHGEccentricity2;
+					Dest.bOverride_HGEccentricity2 = true;
+				}
+				else if (SrcHGEccentricityRatio == 0.0f)
+				{
+					Dest.HGEccentricity1 = SrcHGEccentricity1;
+					Dest.bOverride_HGEccentricity1 = true;
+				}
+				else
+				{
+					Dest.HGEccentricity1 = SrcHGEccentricity1;
+					Dest.bOverride_HGEccentricity1 = true;
+					Dest.HGEccentricity2 = SrcHGEccentricity2;
+					Dest.bOverride_HGEccentricity2 = true;
+				}
+			}
+		}
+
+		if (Src.bOverride_FogMode)
+		{
+			Dest.FogMode = Src.FogMode;
+		}
+#endif
+		// NVCHANGE_END: Nvidia Volumetric Lighting
+
+
+
 	}
 	
 	// will be deprecated soon, use the new asset LightPropagationVolumeBlendable instead
@@ -2300,7 +2517,38 @@ void FSceneView::SetupCommonViewUniformBufferParameters(
 	SetupViewRectUniformBufferParameters(ViewUniformShaderParameters, BufferSize, EffectiveViewRect, InViewMatrices, InPrevViewMatrices);
 }
 
-FSceneViewFamily::FSceneViewFamily(const ConstructionValues& CVS)
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+
+bool FSceneView::ApplyVoxelizationMaterialInfo(const VXGI::MaterialInfo& MaterialInfo, bool bUpdateStateWhenConstantsChange) const
+{
+	SCOPE_CYCLE_COUNTER(STAT_VxgiApplyVoxelizationMaterialInfo);
+
+	const bool bStateChanged = MaterialInfo.requiresNewState(VxgiPreviousMaterialInfo);
+
+	if (bStateChanged)
+	{
+		auto Status = GDynamicRHI->RHIVXGIGetInterface()->getVoxelizationState(MaterialInfo, VxgiDrawCallState);
+		check(VXGI_SUCCEEDED(Status));
+	}
+	else if (MaterialInfo.requiresParameterUpdate(VxgiPreviousMaterialInfo))
+	{
+		auto Status = GDynamicRHI->RHIVXGIGetInterface()->updateVoxelizationMaterialParameters(MaterialInfo);
+		check(VXGI_SUCCEEDED(Status));
+
+		if (bUpdateStateWhenConstantsChange)
+			GDynamicRHI->RHIVXGIApplyShaderResources(VxgiDrawCallState);
+	}
+
+	VxgiPreviousMaterialInfo = MaterialInfo;
+
+	return bStateChanged;
+}
+
+#endif
+// NVCHANGE_END: Add VXGI
+
+FSceneViewFamily::FSceneViewFamily( const ConstructionValues& CVS )
 	:
 	ViewMode(VMI_Lit),
 	FamilySizeX(0),
@@ -2321,6 +2569,11 @@ FSceneViewFamily::FSceneViewFamily(const ConstructionValues& CVS)
 	SceneCaptureCompositeMode(SCCM_Overwrite),
 	bWorldIsPaused(false),
 	GammaCorrection(CVS.GammaCorrection)
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	, bVxgiAvailable(false)
+#endif
+	// NVCHANGE_END: Add VXGI
 {
 	// If we do not pass a valid scene pointer then SetWorldTimes must be called to initialized with valid times.
 	ensure(CVS.bTimesSet);

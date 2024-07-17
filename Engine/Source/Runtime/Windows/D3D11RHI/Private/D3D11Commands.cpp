@@ -835,6 +835,13 @@ void FD3D11DynamicRHI::RHISetBlendFactor(const FLinearColor& BlendFactor)
 	StateCache.SetBlendFactor((const float*)&BlendFactor, 0xffffffff);
 }
 
+// WaveWorks Start
+void FD3D11DynamicRHI::RHISetWaveWorksState(FWaveWorksRHIParamRef State, const FMatrix& ViewMatrix, const TArray<uint32>& ShaderInputMappings)
+{
+	StateCache.SetWaveWorksState(State, ViewMatrix, ShaderInputMappings);
+}
+// WaveWorks End
+
 void FD3D11DynamicRHI::CommitRenderTargetsAndUAVs()
 {
 	ID3D11RenderTargetView* RTArray[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
@@ -1129,29 +1136,31 @@ void FD3D11DynamicRHI::RHISetRenderTargets(
 		bTargetChanged = true;
 	}
 
+	// NVCHANGE_BEGIN: Add VXGI
 	// Only make the D3D call to change render targets if something actually changed.
 	if(bTargetChanged)
 	{
 		CommitRenderTargetsAndUAVs();
-	}
-	
-	// Set the viewport to the full size of render target 0.
-	if (NewRenderTargetViews[0])
-	{
-		// check target 0 is valid
-		check(0 < NewNumSimultaneousRenderTargets && NewRenderTargetsRHI[0].Texture != nullptr);
-		FRTVDesc RTTDesc = GetRenderTargetViewDesc(NewRenderTargetViews[0]);
-		RHISetViewport(0, 0, 0.0f, RTTDesc.Width, RTTDesc.Height, 1.0f);
-	}
-	else if( DepthStencilView )
-	{
-		TRefCountPtr<ID3D11Texture2D> DepthTargetTexture;
-		DepthStencilView->GetResource((ID3D11Resource**)DepthTargetTexture.GetInitReference());
 
-		D3D11_TEXTURE2D_DESC DTTDesc;
-		DepthTargetTexture->GetDesc(&DTTDesc);
-		RHISetViewport(0, 0, 0.0f, DTTDesc.Width, DTTDesc.Height, 1.0f);
+		// Set the viewport to the full size of render target 0.
+		if (NewRenderTargetViews[0])
+		{
+			// check target 0 is valid
+			check(0 < NewNumSimultaneousRenderTargets && NewRenderTargetsRHI[0].Texture != nullptr);
+			FRTVDesc RTTDesc = GetRenderTargetViewDesc(NewRenderTargetViews[0]);
+			RHISetViewport(0, 0, 0.0f, RTTDesc.Width, RTTDesc.Height, 1.0f);
+		}
+		else if (DepthStencilView)
+		{
+			TRefCountPtr<ID3D11Texture2D> DepthTargetTexture;
+			DepthStencilView->GetResource((ID3D11Resource**)DepthTargetTexture.GetInitReference());
+
+			D3D11_TEXTURE2D_DESC DTTDesc;
+			DepthTargetTexture->GetDesc(&DTTDesc);
+			RHISetViewport(0, 0, 0.0f, DTTDesc.Width, DTTDesc.Height, 1.0f);
+		}
 	}
+	// NVCHANGE_END: Add VXGI
 }
 
 void FD3D11DynamicRHI::RHIDiscardRenderTargets(bool Depth, bool Stencil, uint32 ColorBitMask)
@@ -1562,6 +1571,14 @@ void FD3D11DynamicRHI::CommitComputeResourceTables(FD3D11ComputeShader* InComput
 	check(ComputeShader);
 	SetResourcesFromTables(ComputeShader);
 }
+
+// WaveWorks Start
+void FD3D11DynamicRHI::CommitResources()
+{
+	CommitGraphicsResourceTables();
+	CommitNonComputeShaderConstants();
+}
+// WaveWorks End
 
 void FD3D11DynamicRHI::RHIDrawPrimitive(uint32 PrimitiveType,uint32 BaseVertexIndex,uint32 NumPrimitives,uint32 NumInstances)
 {
@@ -2016,3 +2033,79 @@ void FD3D11DynamicRHI::RHITransitionResources(EResourceTransitionAccess Transiti
 		WriteFence->WriteFence();
 	}
 }
+
+// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+
+static TAutoConsoleVariable<int32> CVarHBAOGBufferNormals(
+	TEXT("r.HBAO.GBufferNormals"),
+	1,
+	TEXT(" 0: reconstruct normals from depths\n")
+	TEXT(" 1: fetch GBuffer normals\n"),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<int32> CVarHBAOVisualizeAO(
+	TEXT("r.HBAO.VisualizeAO"),
+	0,
+	TEXT("To visualize the AO only"),
+	ECVF_Cheat | ECVF_RenderThreadSafe);
+
+void FD3D11DynamicRHI::RHIRenderHBAO(
+	const FTextureRHIParamRef SceneDepthTextureRHI,
+	const FMatrix& ProjectionMatrix,
+	const FTextureRHIParamRef SceneNormalTextureRHI,
+	const FMatrix& ViewMatrix,
+	const FTextureRHIParamRef SceneColorTextureRHI,
+	const GFSDK_SSAO_Parameters& BaseParams
+)
+{
+	if (!HBAOContext)
+	{
+		return;
+	}
+
+	D3D11_VIEWPORT Viewport;
+	uint32 NumViewports = 1;
+	Direct3DDeviceIMContext->RSGetViewports(&NumViewports, &Viewport);
+
+	FD3D11TextureBase* DepthTexture = GetD3D11TextureFromRHITexture(SceneDepthTextureRHI);
+	ID3D11ShaderResourceView* DepthSRV = DepthTexture->GetShaderResourceView();
+
+	FD3D11TextureBase* NewRenderTarget = GetD3D11TextureFromRHITexture(SceneColorTextureRHI);
+	ID3D11RenderTargetView* RenderTargetView = NewRenderTarget->GetRenderTargetView(0, -1);
+
+	GFSDK_SSAO_InputData_D3D11 Input;
+	Input.DepthData.DepthTextureType = GFSDK_SSAO_HARDWARE_DEPTHS;
+	Input.DepthData.pFullResDepthTextureSRV = DepthSRV;
+	Input.DepthData.Viewport.Enable = true;
+	Input.DepthData.Viewport.TopLeftX = uint32(Viewport.TopLeftX);
+	Input.DepthData.Viewport.TopLeftY = uint32(Viewport.TopLeftY);
+	Input.DepthData.Viewport.Width = uint32(Viewport.Width);
+	Input.DepthData.Viewport.Height = uint32(Viewport.Height);
+	Input.DepthData.ProjectionMatrix.Data = GFSDK_SSAO_Float4x4(&ProjectionMatrix.M[0][0]);
+	Input.DepthData.ProjectionMatrix.Layout = GFSDK_SSAO_ROW_MAJOR_ORDER;
+	Input.DepthData.MetersToViewSpaceUnits = 100.f;
+
+	FD3D11TextureBase* NormalTexture = GetD3D11TextureFromRHITexture(SceneNormalTextureRHI);
+	ID3D11ShaderResourceView* NormalSRV = NormalTexture->GetShaderResourceView();
+
+	Input.NormalData.Enable = CVarHBAOGBufferNormals.GetValueOnRenderThread();
+	Input.NormalData.pFullResNormalTextureSRV = NormalSRV;
+	Input.NormalData.DecodeScale = 2.f;
+	Input.NormalData.DecodeBias = -1.f;
+	Input.NormalData.WorldToViewMatrix.Data = GFSDK_SSAO_Float4x4(&ViewMatrix.M[0][0]);
+	Input.NormalData.WorldToViewMatrix.Layout = GFSDK_SSAO_ROW_MAJOR_ORDER;
+
+	GFSDK_SSAO_Output_D3D11 Output;
+	ZeroMemory(&Output, sizeof(Output));
+	Output.pRenderTargetView = RenderTargetView;
+	Output.Blend.Mode = CVarHBAOVisualizeAO.GetValueOnRenderThread() ? GFSDK_SSAO_OVERWRITE_RGB : GFSDK_SSAO_MULTIPLY_RGB;
+	Output.TwoPassBlend.Enable = false;
+
+	GFSDK_SSAO_Status Status;
+	Status = HBAOContext->RenderAO(Direct3DDeviceIMContext, Input, BaseParams, Output, GFSDK_SSAO_RenderMask::GFSDK_SSAO_RENDER_AO);
+	check(Status == GFSDK_SSAO_OK);
+}
+
+#endif
+// NVCHANGE_END: Add HBAO+

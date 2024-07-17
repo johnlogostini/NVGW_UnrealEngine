@@ -771,7 +771,14 @@ void FProjectedShadowInfo::AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSce
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_AddSubjectPrimitive);
 
 	// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling should be used
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	// But VXGI still needs a regular shadow map
+	check(!bRayTracedDistanceField || LightSceneInfo->Proxy->CastVxgiIndirectLighting());
+#else
 	check(!bRayTracedDistanceField);
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	if (!ReceiverPrimitives.Contains(PrimitiveSceneInfo)
 		// Far cascade only casts from primitives marked for it
@@ -1615,6 +1622,27 @@ void FSceneRenderer::CreatePerObjectProjectedShadow(
 				FMath::Min<int32>(MinShadowResolution, ShadowBufferResolution.X - SHADOW_BORDER * 2)
 				)
 			);
+
+		// @third party code - BEGIN HairWorks
+		// Increase shadow resolution for hairs
+		{
+			const auto& PrimViewRel = View.PrimitiveViewRelevanceMap[ShadowGroupPrimitives[0]->GetIndex()];
+			if(PrimViewRel.bHairWorks)
+			{
+				static const auto& CVarHairTexelsScale = *IConsoleManager::Get().FindConsoleVariable(TEXT("r.HairWorks.Shadow.TexelsScale"));
+				const float HairUnclampedResolution = UnclampedResolution * CVarHairTexelsScale.GetFloat();
+
+				MaxDesiredResolution = FMath::Max(
+					MaxDesiredResolution,
+					FMath::Clamp<uint32>(
+						HairUnclampedResolution,
+						FMath::Min<int32>(MinShadowResolution, ShadowBufferResolution.X - SHADOW_BORDER * 2),
+						MaxShadowResolution
+						)
+				);
+			}
+		}
+		// @third party code - END HairWorks
 	}
 
 	FBoxSphereBounds Bounds = OriginalBounds;
@@ -2131,7 +2159,13 @@ void FSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneInfo* LightScene
 					}
 
 					// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling should be used
+					// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+					if (!ProjectedShadowInfo->bRayTracedDistanceField || LightSceneInfo->Proxy->CastVxgiIndirectLighting())
+#else
 					if (!ProjectedShadowInfo->bRayTracedDistanceField)
+#endif
+					// NVCHANGE_END: Add VXGI
 					{
 						if (CacheMode[CacheModeIndex] != SDCM_StaticPrimitivesOnly 
 							&& (CacheMode[CacheModeIndex] != SDCM_MovablePrimitivesOnly || GCachedShadowsCastFromMovablePrimitives))
@@ -2866,7 +2900,13 @@ void FSceneRenderer::AddViewDependentWholeSceneShadowsForView(
 					ShadowInfos.Add(ProjectedShadowInfo);
 
 					// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling needed
+					// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+					if (!ProjectedShadowInfo->bRayTracedDistanceField || LightSceneInfo.Proxy->CastVxgiIndirectLighting())
+#else
 					if (!ProjectedShadowInfo->bRayTracedDistanceField)
+#endif
+					// NVCHANGE_END: Add VXGI
 					{
 						ShadowInfosThatNeedCulling.Add(ProjectedShadowInfo);
 					}
@@ -2911,7 +2951,13 @@ void FSceneRenderer::AddViewDependentWholeSceneShadowsForView(
 						ShadowInfos.Add(ProjectedShadowInfo); // or separate list?
 
 						// Ray traced shadows use the GPU managed distance field object buffers, no CPU culling needed
+						// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+						if (!ProjectedShadowInfo->bRayTracedDistanceField || LightSceneInfo.Proxy->CastVxgiIndirectLighting())
+#else
 						if (!ProjectedShadowInfo->bRayTracedDistanceField)
+#endif
+						// NVCHANGE_END: Add VXGI
 						{
 							ShadowInfosThatNeedCulling.Add(ProjectedShadowInfo);
 						}
@@ -3044,8 +3090,13 @@ void FSceneRenderer::AllocateShadowDepthTargets(FRHICommandListImmediate& RHICmd
 						VisibleLightInfo.ShadowsToProject.Add(ProjectedShadowInfo);
 					}
 				}
-
+				// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+				const bool bNeedsShadowmapSetup = !bIsCapsuleShadow && (!ProjectedShadowInfo->bRayTracedDistanceField || LightSceneInfo->Proxy->CastVxgiIndirectLighting());
+#else
 				const bool bNeedsShadowmapSetup = !bIsCapsuleShadow && !ProjectedShadowInfo->bRayTracedDistanceField;
+#endif
+				// NVCHANGE_END: Add VXGI
 
 				if (bNeedsShadowmapSetup)
 				{

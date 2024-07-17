@@ -733,6 +733,10 @@ public:
 	/** Return the body's inertia tensor. This is returned in local mass space */
 	FVector GetBodyInertiaTensor() const;
 
+// WaveWorks Start
+	float GetBodyVolume() const { return ShapesVolume; }
+	void SetBodyVolume(float volume) { ShapesVolume = volume; }
+// WaveWorks End
 
 	/** Set this body to be fixed (kinematic) or not. */
 	void SetInstanceSimulatePhysics(bool bSimulate, bool bMaintainPhysicsBlending=false);
@@ -852,7 +856,7 @@ public:
 	DEPRECATED(4.18, "Use GetUnrealWorldAngularVelocityInRadians instead - be sure to convert the return value to degrees if required.")
 	inline FVector GetUnrealWorldAngularVelocity() const
 	{
-		return FMath::DegreesToRadians(GetUnrealWorldAngularVelocityInRadians());
+		return FMath::RadiansToDegrees(GetUnrealWorldAngularVelocityInRadians());
 	}
 
 	/** Get current angular velocity in world space from physics body. */
@@ -862,7 +866,7 @@ public:
 	DEPRECATED(4.18, "Use GetUnrealWorldAngularVelocityInRadians_AssumesLocked instead - be sure to convert the return value to degrees if required.")
 	inline FVector GetUnrealWorldAngularVelocity_AssumesLocked() const
 	{
-		return FMath::DegreesToRadians(GetUnrealWorldAngularVelocityInRadians_AssumesLocked());
+		return FMath::RadiansToDegrees(GetUnrealWorldAngularVelocityInRadians_AssumesLocked());
 	}
 
 	/** Get current angular velocity in world space from physics body. */
@@ -1179,6 +1183,9 @@ private:
 	/** Used to map between shapes and welded bodies. We do not create entries if the owning body instance is root*/
 	TSharedPtr<TMap<physx::PxShape*, FWeldInfo>> ShapeToBodiesMap;
 
+// WaveWorks Start
+	float ShapesVolume;
+// WaveWorks End
 #endif
 
 	void SetShapeFlagsInternal_AssumesShapeLocked(struct FSetShapeParams& Params, bool& bUpdateMassProperties);

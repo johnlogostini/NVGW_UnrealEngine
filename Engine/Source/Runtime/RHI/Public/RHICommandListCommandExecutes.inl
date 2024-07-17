@@ -220,6 +220,14 @@ template<> void FRHICommandSetShaderSampler<FComputeShaderRHIParamRef, ECmdList:
 	INTERNAL_DECORATOR_COMPUTE(RHISetShaderSampler)(Shader, SamplerIndex, Sampler);
 }
 
+// WaveWorks Start
+void FRHICommandSetWaveWorksState::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(SetWaveWorksState);
+	INTERNAL_DECORATOR(RHISetWaveWorksState)(State, ViewMatrix, ShaderInputMappings);
+}
+// WaveWorks End
+
 void FRHICommandDrawPrimitive::Execute(FRHICommandListBase& CmdList)
 {
 	RHISTAT(DrawPrimitive);
@@ -513,6 +521,59 @@ void FRHICommandWaitComputeFence<CmdListType>::Execute(FRHICommandListBase& CmdL
 template struct FRHICommandWaitComputeFence<ECmdList::EGfx>;
 template struct FRHICommandWaitComputeFence<ECmdList::ECompute>;
 
+// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+
+void FRHICommandRenderHBAO::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(RenderHBAO);
+	INTERNAL_DECORATOR(RHIRenderHBAO)(
+		SceneDepthTextureRHI,
+		ProjectionMatrix,
+		SceneNormalTextureRHI,
+		ViewMatrix,
+		SceneColorTextureRHI,
+		AOParams);
+}
+
+#endif
+// NVCHANGE_END: Add HBAO+
+
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+
+void FRHIVXGICleanupAfterVoxelization::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(VXGICleanupAfterVoxelization);
+	INTERNAL_DECORATOR(RHIVXGICleanupAfterVoxelization)();
+}
+
+void FRHISetViewportsAndScissorRects::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(SetViewportsAndScissorRects);
+	INTERNAL_DECORATOR(RHISetViewportsAndScissorRects)(Count, Viewports.GetData(), ScissorRects.GetData());
+}
+
+void FRHIDispatchIndirectComputeShaderStructured::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(DispatchIndirectComputeShaderStructured);
+	INTERNAL_DECORATOR(RHIDispatchIndirectComputeShaderStructured)(ArgumentBuffer, ArgumentOffset);
+}
+
+void FRHICopyStructuredBufferData::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(CopyStructuredBufferData);
+	INTERNAL_DECORATOR(RHICopyStructuredBufferData)(DestBuffer, DestOffset, SrcBuffer, SrcOffset, DataSize);
+}
+
+void FRHIExecuteVxgiRenderingCommand::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(ExecuteVxgiRenderingCommand);
+	INTERNAL_DECORATOR(RHIExecuteVxgiRenderingCommand)(Command);
+}
+#endif
+// NVCHANGE_END: Add VXGI
+
 void FRHICommandBuildLocalGraphicsPipelineState::Execute(FRHICommandListBase& CmdList)
 {
 	LLM_SCOPE(ELLMTag::Shaders);
@@ -537,6 +598,18 @@ void FRHICommandSetLocalGraphicsPipelineState::Execute(FRHICommandListBase& CmdL
 		LocalGraphicsPipelineState.WorkArea->ComputedGraphicsPipelineState->~FComputedGraphicsPipelineState();
 	}
 }
+
+// WaveWorks Begin
+void FRHICommandBuildDrawQuadTreeWaveWorks::Execute(FRHICommandListBase& CmdList)
+{
+	WorkArea.WaveWorks->DrawQuadTree(
+		WorkArea.QuadTreeHandle,
+		WorkArea.ViewMatrix,
+		WorkArea.ProjMatrix,
+		WorkArea.ShaderInputMappings
+		);	
+}
+// WaveWorks End
 
 void FRHICommandBuildLocalUniformBuffer::Execute(FRHICommandListBase& CmdList)
 {
@@ -670,4 +743,47 @@ void FRHICommandInvalidateCachedState::Execute(FRHICommandListBase& CmdList)
 	INTERNAL_DECORATOR(RHIInvalidateCachedState)();
 }
 
+// NvFlow begin
+void FRHICommandNvFlowWork::Execute(FRHICommandListBase& CmdList)
+{
+	RHISTAT(NvFlowWork);
+	INTERNAL_DECORATOR(NvFlowWork)(WorkFunc, ParamData, NumBytes);
+}
+// NvFlow end
 
+// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+void FRHICommandBeginAccumulation::Execute(FRHICommandListBase& CmdList)
+{
+	if (GNVVolumetricLightingRHI)
+	{
+		GNVVolumetricLightingRHI->BeginAccumulation(SceneDepthTextureRHI, ViewerDescs, MediumDesc, DebugFlags);
+	}
+}
+
+void FRHICommandRenderVolume::Execute(FRHICommandListBase& CmdList)
+{
+	if (GNVVolumetricLightingRHI)
+	{
+		GNVVolumetricLightingRHI->RenderVolume(ShadowMapTextures, ShadowMapDesc, LightDesc, VolumeDesc);
+	}
+}
+
+void FRHICommandEndAccumulation::Execute(FRHICommandListBase& CmdList)
+{
+	if (GNVVolumetricLightingRHI)
+	{
+		GNVVolumetricLightingRHI->EndAccumulation();
+	}
+}
+
+void FRHICommandApplyLighting::Execute(FRHICommandListBase& CmdList)
+{
+	if (GNVVolumetricLightingRHI)
+	{
+		GNVVolumetricLightingRHI->ApplyLighting(SceneColorSurfaceRHI, PostprocessDesc);
+	}
+}
+
+#endif
+// NVCHANGE_END: Nvidia Volumetric Lighting

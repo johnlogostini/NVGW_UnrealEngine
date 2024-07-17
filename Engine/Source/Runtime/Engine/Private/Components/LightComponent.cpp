@@ -234,6 +234,12 @@ FLightSceneProxy::FLightSceneProxy(const ULightComponent* InLightComponent)
 	, bCastModulatedShadows(false)
 	, bUseWholeSceneCSMForMovableObjects(false)
 	, RayStartOffsetDepthScale(InLightComponent->RayStartOffsetDepthScale)
+	// NVCHANGE_BEGIN: Add VXGI
+	// Disable VXGI for Static and Stationary lights because Lightmass is already baking their indirect lighting
+#if WITH_GFSDK_VXGI
+	, bCastVxgiIndirectLighting(InLightComponent->bCastVxgiIndirectLighting && !InLightComponent->HasStaticShadowing())
+#endif
+	// NVCHANGE_END: Add VXGI
 	, LightType(InLightComponent->GetLightType())	
 	, LightingChannelMask(GetLightingChannelMaskForStruct(InLightComponent->LightingChannels))
 	, ComponentName(InLightComponent->GetOwner() ? InLightComponent->GetOwner()->GetFName() : InLightComponent->GetFName())
@@ -241,6 +247,21 @@ FLightSceneProxy::FLightSceneProxy(const ULightComponent* InLightComponent)
 	, StatId(InLightComponent->GetStatID(true))
 	, FarShadowDistance(0)
 	, FarShadowCascadeCount(0)
+
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	, bEnableNVVL(InLightComponent->bEnableVolumetricLighting)
+	, TessQuality(InLightComponent->TessQuality)
+	, TargetRayResolution(InLightComponent->TargetRayResolution)
+	, DepthBias(InLightComponent->DepthBias)
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+// NvFlow begin
+	, bFlowGridShadowEnabled(InLightComponent->bFlowGridShadowEnabled)
+	, FlowGridShadowChannel(InLightComponent->FlowGridShadowChannel)
+// NvFlow end
 {
 	check(SceneInterface);
 
@@ -287,7 +308,16 @@ FLightSceneProxy::FLightSceneProxy(const ULightComponent* InLightComponent)
 	LightFunctionScale = LightComponent->LightFunctionScale;
 	LightFunctionFadeDistance = LightComponent->LightFunctionFadeDistance;
 	LightFunctionDisabledBrightness = LightComponent->DisabledBrightness;
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	Intensity = LightComponent->bUseVolumetricLightingColor ? FLinearColor(InLightComponent->VolumetricLightingColor) * InLightComponent->VolumetricLightingIntensity : Color;
+	InLightComponent->GetNvVlAttenuation(AttenuationMode, AttenuationFactors);
+	InLightComponent->GetNvVlFalloff(FalloffMode, FalloffAngleAndPower);
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 }
+
+
 
 bool FLightSceneProxy::ShouldCreatePerObjectShadowsForDynamicObjects() const
 {
@@ -371,6 +401,25 @@ ULightComponent::ULightComponent(const FObjectInitializer& ObjectInitializer)
 	MaxDrawDistance = 0.0f;
 	MaxDistanceFadeRange = 0.0f;
 	bAddedToSceneVisible = false;
+	// NvFlow begin
+	bFlowGridShadowEnabled = false;
+	FlowGridShadowChannel = 0;
+	// NvFlow end
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+	bEnableVolumetricLighting = false;
+	TessQuality = ETessellationQuality::HIGH;
+	DepthBias = 0.0f;
+	TargetRayResolution = 12.0f;
+
+	bUseVolumetricLightingColor = false;
+	VolumetricLightingIntensity = 10.0f;
+	VolumetricLightingColor = FColor::White;
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+	// NVCHANGE_BEGIN: Add VXGI
+	bCastVxgiIndirectLighting = false;
+	// NVCHANGE_END: Add VXGI
 }
 
 bool ULightComponent::AffectsPrimitive(const UPrimitiveComponent* Primitive) const
@@ -532,6 +581,23 @@ bool ULightComponent::CanEditChange(const UProperty* InProperty) const
 		{
 			return bUseTemperature;
 		}
+
+		// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+		if (PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, VolumetricLightingIntensity)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, VolumetricLightingColor))
+		{
+			return bEnableVolumetricLighting && bUseVolumetricLightingColor;
+		}
+
+		if (PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, bUseVolumetricLightingColor)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, TargetRayResolution)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, DepthBias)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, TessQuality))
+		{
+			return bEnableVolumetricLighting;
+		}
+		// NVCHANGE_END: Nvidia Volumetric Lighting
+
 	}
 
 	return Super::CanEditChange(InProperty);
@@ -576,6 +642,9 @@ void ULightComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, LightingChannels) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, VolumetricScatteringIntensity) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, bCastVolumetricShadow) &&
+		// NVCHANGE_BEGIN: Add VXGI
+		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, bCastVxgiIndirectLighting) &&
+		// NVCHANGE_END: Add VXGI
 		// Point light properties that shouldn't unbuild lighting
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(UPointLightComponent, SourceRadius) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(UPointLightComponent, SoftSourceRadius) &&

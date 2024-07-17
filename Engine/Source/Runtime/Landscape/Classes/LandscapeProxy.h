@@ -377,6 +377,11 @@ public:
 	UPROPERTY(EditAnywhere, Category=Lighting)
 	int32 StaticLightingLOD;
 
+// WaveWorks Begin
+	UPROPERTY(EditAnywhere, Category = Lighting)
+	bool bAffectDistanceFieldLighting;
+// WaveWorks End
+
 	/** Default physical material, used when no per-layer values physical materials */
 	UPROPERTY(EditAnywhere, Category=Landscape)
 	UPhysicalMaterial* DefaultPhysMaterial;

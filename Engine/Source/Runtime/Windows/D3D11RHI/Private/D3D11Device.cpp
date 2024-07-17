@@ -13,6 +13,9 @@
 	#include "amd_ags.h"
 #include "HideWindowsPlatformTypes.h"
 
+// @third party code - BEGIN HairWorks
+#include "HairWorksSDK.h"
+// @third party code - END HairWorks
 
 bool D3D11RHI_ShouldCreateWithD3DDebug()
 {
@@ -63,6 +66,18 @@ FD3D11DynamicRHI::FD3D11DynamicRHI(IDXGIFactory1* InDXGIFactory1,D3D_FEATURE_LEV
 	GPUProfilingData(this),
 	ChosenAdapter(InChosenAdapter),
 	ChosenDescription(InChosenDescription)
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	, VxgiInterface(NULL)
+	, VxgiRendererD3D11(NULL)
+#endif
+	// NVCHANGE_END: Add VXGI
+	// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+	, HBAOContext(NULL)
+	, HBAOModuleHandle(NULL)
+#endif
+	// NVCHANGE_END: Add HBAO+
 {
 	// This should be called once at the start 
 	check(ChosenAdapter >= 0);
@@ -182,6 +197,10 @@ FD3D11DynamicRHI::FD3D11DynamicRHI(IDXGIFactory1* InDXGIFactory1,D3D_FEATURE_LEV
 	GPixelFormats[ PF_BC7			].PlatformFormat	= DXGI_FORMAT_BC7_TYPELESS;
 	GPixelFormats[ PF_R8_UINT		].PlatformFormat	= DXGI_FORMAT_R8_UINT;
 
+	// NVCHANGE_BEGIN: Add VXGI
+	GPixelFormats[ PF_L8            ].PlatformFormat    = DXGI_FORMAT_R8_TYPELESS;
+	// NVCHANGE_END: Add VXGI
+
 	if (FeatureLevel >= D3D_FEATURE_LEVEL_11_0)
 	{
 		GSupportsSeparateRenderTargetBlendState = true;
@@ -232,6 +251,11 @@ void FD3D11DynamicRHI::Shutdown()
 {
 	UE_LOG(LogD3D11RHI, Log, TEXT("Shutdown"));
 	check(IsInGameThread() && IsInRenderingThread());  // require that the render thread has been shut down
+
+	// @third party code - BEGIN HairWorks
+	// Shut down HairWorks
+	HairWorks::ShutDown();
+	// @third party code - END HairWorks
 
 	// Cleanup the D3D device.
 	CleanupD3DDevice();
@@ -487,6 +511,21 @@ void FD3D11DynamicRHI::CleanupD3DDevice()
 		extern void EmptyD3DSamplerStateCache();
 		EmptyD3DSamplerStateCache();
 
+		// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+		if (HBAOContext)
+		{
+			HBAOContext->Release();
+			HBAOContext = NULL;
+		}
+		if (HBAOModuleHandle)
+		{
+			FreeLibrary(HBAOModuleHandle);
+			HBAOModuleHandle = NULL;
+		}
+#endif
+		// NVCHANGE_END: Add HBAO+
+
 		// release our dynamic VB and IB buffers
 		DynamicVB = NULL;
 		DynamicIB = NULL;
@@ -556,6 +595,13 @@ void FD3D11DynamicRHI::CleanupD3DDevice()
 			Direct3DDeviceIMContext = nullptr;
 			Direct3DDevice = nullptr;
 		}
+
+		// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+		ReleaseVxgiInterface();
+		FWindowsPlatformMisc::UnloadVxgiModule();
+#endif
+		// NVCHANGE_END: Add VXGI
 	}
 }
 
@@ -589,3 +635,47 @@ void* FD3D11DynamicRHI::RHIGetNativeDevice()
 }
 
 
+
+// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+void FD3D11DynamicRHI::ClearStateCache()
+{
+	StateCache.ClearCache();
+
+	FMemory::Memzero(CurrentRenderTargets, sizeof(CurrentRenderTargets));
+	FMemory::Memzero(CurrentUAVs, sizeof(CurrentUAVs));
+
+	CurrentDepthStencilTarget = nullptr;
+	CurrentDepthTexture = nullptr;
+
+	NumSimultaneousRenderTargets = 0;
+	NumUAVs = 0;
+}
+
+bool FD3D11DynamicRHI::GetPlatformDesc(NvVl::PlatformDesc& PlatformDesc)
+{
+	PlatformDesc.platform = NvVl::PlatformName::D3D11;
+	PlatformDesc.d3d11.pDevice = Direct3DDevice;
+	return true;
+}
+
+void FD3D11DynamicRHI::GetPlatformRenderCtx(NvVl::PlatformRenderCtx& PlatformRenderCtx)
+{
+	PlatformRenderCtx = GetDeviceContext();
+}
+
+void FD3D11DynamicRHI::GetPlatformShaderResource(FTextureRHIParamRef TextureRHI, NvVl::PlatformShaderResource& PlatformShaderResource)
+{
+	FD3D11TextureBase* BaseTexture = GetD3D11TextureFromRHITexture(TextureRHI);
+	ID3D11ShaderResourceView* SRV = BaseTexture->GetShaderResourceView();
+	PlatformShaderResource = SRV;
+}
+
+void FD3D11DynamicRHI::GetPlatformRenderTarget(FTextureRHIParamRef TextureRHI, NvVl::PlatformRenderTarget& PlatformRenderTarget)
+{
+	FD3D11TextureBase* BaseTexture = GetD3D11TextureFromRHITexture(TextureRHI);
+	ID3D11RenderTargetView* RTV = BaseTexture->GetRenderTargetView(0, -1);
+	PlatformRenderTarget = RTV;
+}
+#endif
+// NVCHANGE_END: Nvidia Volumetric Lighting

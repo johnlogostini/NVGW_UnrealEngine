@@ -93,7 +93,9 @@ public abstract class BaseLinuxPlatform : Platform
 						List<StagedFileReference> StagePaths = SC.FilesToStage.NonUFSFiles.Where(x => x.Value == Executable.Path).Select(x => x.Key).ToList();
 						foreach (StagedFileReference StagePath in StagePaths)
 						{
-							StageBootstrapExecutable(SC, BootstrapExeName + ".sh", FullExecutablePath, StagePath.Name, BootstrapArguments);
+//#nv begin #Blast Linux build
+							StageBootstrapExecutable(SC, Target, BootstrapExeName + ".sh", FullExecutablePath, StagePath.Name, BootstrapArguments); //@third party code - NVSTUDIOS Set LD_LIBRARY_PATH
+//nv end
 						}
 					}
 				}
@@ -106,7 +108,9 @@ public abstract class BaseLinuxPlatform : Platform
 		return false;
 	}
 
-	void StageBootstrapExecutable(DeploymentContext SC, string ExeName, string TargetFile, string StagedRelativeTargetPath, string StagedArguments)
+//#nv begin #Blast Linux build
+	void StageBootstrapExecutable(DeploymentContext SC, StageTarget Target, string ExeName, string TargetFile, string StagedRelativeTargetPath, string StagedArguments) //@third party code - NVSTUDIOS Set LD_LIBRARY_PATH
+//nv end
 	{
 		// create a temp script file location
 		DirectoryReference IntermediateDir = DirectoryReference.Combine(SC.ProjectRoot, "Intermediate", "Staging");
@@ -124,6 +128,48 @@ public abstract class BaseLinuxPlatform : Platform
 		Script.AppendFormat("UE4_TRUE_SCRIPT_NAME=$(echo \\\"$0\\\" | xargs readlink -f)" + EOL);
 		Script.AppendFormat("UE4_PROJECT_ROOT=$(dirname \"$UE4_TRUE_SCRIPT_NAME\")" + EOL);
 		Script.AppendFormat("chmod +x \"$UE4_PROJECT_ROOT/{0}\"" + EOL, StagedRelativeTargetPath);
+
+//#nv begin #Blast Linux build
+		//The Blast .so files are not loaded by dlopen so we we need to setup the search paths
+		//Really UE should be doing this for all dependent libraries, but they usually statically link
+		HashSet<string> LDLibraryPaths = new HashSet<string>();
+		DirectoryReference TargetFileDir = (new FileReference(TargetFile)).Directory;
+		DirectoryReference SourceEngineDir = SC.LocalRoot;
+		DirectoryReference SourceProjectDir = SC.ProjectRoot;
+		foreach (var RuntimeDependency in Target.Receipt.RuntimeDependencies)
+		{
+			foreach (FileReference File in CommandUtils.ResolveFilespec(CommandUtils.RootDirectory, RuntimeDependency.Path.FullName, new string[] { }))
+			{
+				if (FileReference.Exists(File) && File.GetExtension().Equals(".so", StringComparison.OrdinalIgnoreCase))
+				{
+					string FileRelativePath = null;
+					DirectoryReference SharedLibFolder = File.Directory;
+					if (SharedLibFolder.IsUnderDirectory(SourceProjectDir))
+					{
+						FileRelativePath = Path.Combine(SharedLibFolder.MakeRelativeTo(SourceProjectDir),SC.RelativeProjectRootForStage.ToString());
+					}
+					else if (SharedLibFolder.IsUnderDirectory(SourceEngineDir))
+					{
+						FileRelativePath = SharedLibFolder.MakeRelativeTo(SourceEngineDir);
+					}
+
+					if (FileRelativePath != null)
+					{
+						FileRelativePath = Path.Combine("$UE4_PROJECT_ROOT", FileRelativePath);
+						FileRelativePath = FileRelativePath.Replace("\\", "/");
+						//Escape spaces
+						FileRelativePath = FileRelativePath.Replace(" ", @"\ ");
+						LDLibraryPaths.Add(FileRelativePath);
+					}
+				}
+			}
+		}
+
+		if (LDLibraryPaths.Count > 0)
+		{
+			Script.AppendFormat("export LD_LIBRARY_PATH={0}" + EOL, string.Join(":", LDLibraryPaths));
+		}
+//nv end
 		Script.AppendFormat("\"$UE4_PROJECT_ROOT/{0}\" {1} $@ " + EOL, StagedRelativeTargetPath, StagedArguments);
 
 		// write out the 

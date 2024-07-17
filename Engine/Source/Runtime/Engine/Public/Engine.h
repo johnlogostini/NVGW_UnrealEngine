@@ -198,6 +198,10 @@ MONOLITHIC_HEADER_BOILERPLATE()
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/SceneCaptureComponentCube.h"
 #include "Components/TimelineComponent.h"
+// WaveWorks Start
+#include "Components/WaveWorksComponent.h"
+#include "Components/WaveWorksShorelineCaptureComponent.h"
+// WaveWorks End
 #include "EditorFramework/AssetImportData.h"
 #include "Engine/AssetUserData.h"
 #include "Engine/BlendableInterface.h"
@@ -323,6 +327,10 @@ MONOLITHIC_HEADER_BOILERPLATE()
 #include "GameFramework/TouchInterface.h"
 #include "Engine/UserDefinedEnum.h"
 #include "Engine/UserDefinedStruct.h"
+// WaveWorks Start
+#include "Engine/WaveWorks.h"
+#include "Engine/WaveWorksShorelineCapture.h"
+// WaveWorks End
 #include "Animation/MorphTarget.h"
 #include "Animation/AnimInstance.h"
 

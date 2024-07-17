@@ -184,6 +184,9 @@ MONOLITHIC_HEADER_BOILERPLATE()
 #include "Classes/Factories/FbxSceneImportOptions.h"
 #include "Classes/Factories/FbxSceneImportOptionsSkeletalMesh.h"
 #include "Classes/Factories/FbxSceneImportOptionsStaticMesh.h"
+// @third party code - BEGIN HairWorks
+#include "Classes/Factories/HairWorksFactory.h"
+// @third party code - END HairWorks
 #include "Classes/Commandlets/FileServerCommandlet.h"
 #include "Classes/Commandlets/GatherTextCommandletBase.h"
 #include "Classes/Commandlets/GatherTextCommandlet.h"
@@ -279,8 +282,21 @@ MONOLITHIC_HEADER_BOILERPLATE()
 #include "Classes/Commandlets/UpdateGameProjectCommandlet.h"
 #include "Classes/UserDefinedStructure/UserDefinedStructEditorData.h"
 #include "Classes/Commandlets/WrangleContentCommandlet.h"
-//////////////////////	@todo Classes.h
 
+#if WITH_FLEX
+#include "Classes/Factories/FlexFluidSurfaceFactory.h"
+#include "Classes/Factories/FlexContainerFactory.h"
+#include "Classes/ActorFactories/ActorFactoryFlex.h"
+#endif
+// WaveWorks Start
+#include "Classes/Factories/WaveWorksFactoryNew.h"
+// WaveWorks End
+
+// NVCHANGE_BEGIN: Add VXGI
+#include "Classes/ActorFactories/ActorFactoryVxgiAnchor.h"
+// NVCHANGE_END: Add VXGI
+
+//////////////////////	@todo Classes.h
 #include "Kismet2/ComponentEditorUtils.h"
 #include "Commandlets/EditorCommandlets.h"
 #include "EditorUndoClient.h"

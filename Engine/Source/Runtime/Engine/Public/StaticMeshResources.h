@@ -26,6 +26,9 @@
 #include "MeshBatch.h"
 #include "SceneManagement.h"
 #include "Components/StaticMeshComponent.h"
+// WaveWorks Start
+#include "Components/WaveWorksStaticMeshComponent.h"
+// WaveWorks End
 #include "PhysicsEngine/BodySetupEnums.h"
 #include "Materials/MaterialInterface.h"
 #include "Rendering/ColorVertexBuffer.h"
@@ -665,6 +668,36 @@ protected:
 	 */
 	FLODMask GetLODMask(const FSceneView* View) const;
 };
+
+// WaveWorks Start
+/**
+* A waveworks static mesh component scene proxy.
+*/
+class ENGINE_API FWaveWorksStaticMeshSceneProxy : public FStaticMeshSceneProxy
+{
+public:
+
+	/** Initialization constructor. */
+	FWaveWorksStaticMeshSceneProxy(UWaveWorksStaticMeshComponent* Component, bool bForceLODsShareStaticLighting);
+	virtual ~FWaveWorksStaticMeshSceneProxy();
+
+	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) const override;	
+
+	/** Get WaveWorks Component */
+	FORCEINLINE class UWaveWorksStaticMeshComponent* GetWaveWorksStaticMeshComponent() const { return WaveWorksStaticMeshComponent; }
+
+	/** Sample Displacement with XY Plane's Sample Position */
+	void SampleDisplacements_GameThread(TArray<FVector> InSamplePoints, FWaveWorksSampleDisplacementsDelegate VectorArrayDelegate);
+
+	/** Get intersect point with ray */
+	void GetIntersectPointWithRay_GameThread(FVector InOriginPoint, FVector InDirection, float SeaLevel, FWaveWorksRaycastResultDelegate OnRecieveIntersectPointDelegate);
+
+private:
+
+	/** The WaveWorksComponent */
+	class UWaveWorksStaticMeshComponent* WaveWorksStaticMeshComponent;
+};
+// WaveWorks End
 
 /*-----------------------------------------------------------------------------
 	FStaticMeshInstanceData

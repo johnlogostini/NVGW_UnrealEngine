@@ -37,6 +37,12 @@ struct FILCUpdatePrimTaskData;
 
 template<typename ShaderMetaType> class TShaderMap;
 
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+#include "GFSDK_VXGI.h"
+#endif
+// NVCHANGE_END: Add VXGI
+
 // Forward declarations.
 class FPostprocessContext;
 struct FILCUpdatePrimTaskData;
@@ -353,6 +359,10 @@ public:
 	*/
 	void DrawPrimitives(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, class FDeferredShadingSceneRenderer& Renderer, ETranslucencyPass::Type TranslucenyPassType) const;
 
+	// WaveWorks Start
+	void DrawWaveWorksPrimitives(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, class FDeferredShadingSceneRenderer& Renderer) const;
+	// WaveWorks End
+
 	/**
 	* Iterate over the sorted list of prims and draw them
 	* @param View - current view used to draw items
@@ -425,6 +435,9 @@ private:
 
 	/** Renders a single primitive for the deferred shading pipeline. */
 	void RenderPrimitive(FRHICommandList& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, FPrimitiveSceneInfo* PrimitiveSceneInfo, const FPrimitiveViewRelevance& ViewRelevance, const FProjectedShadowInfo* TranslucentSelfShadow, ETranslucencyPass::Type TranslucenyPassType) const;
+	// WaveWorks Start
+	void RenderWaveWorksPrimitive(FRHICommandList& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, FPrimitiveSceneInfo* PrimitiveSceneInfo, const FPrimitiveViewRelevance& ViewRelevance) const;
+	// WaveWorks End
 };
 
 template <> struct TIsPODType<FTranslucentPrimSet::FTranslucentSortedPrim> { enum { Value = true }; };
@@ -849,6 +862,9 @@ public:
 
 	/** The dynamic primitives visible in this view. */
 	TArray<const FPrimitiveSceneInfo*,SceneRenderingAllocator> VisibleDynamicPrimitives;
+	// @third party code - BEGIN HairWorks
+	TArray<const FPrimitiveSceneInfo*, SceneRenderingAllocator> VisibleHairs;
+	// @third party code - END HairWorks
 
 	/** The dynamic editor primitives visible in this view. */
 	TArray<const FPrimitiveSceneInfo*,SceneRenderingAllocator> VisibleEditorPrimitives;
@@ -1457,9 +1473,73 @@ protected:
 
 	/** Computes which primitives are visible and relevant for each view. */
 	void ComputeViewVisibility(FRHICommandListImmediate& RHICmdList);
-
+	
 	/** Performs once per frame setup after to visibility determination. */
 	void PostVisibilityFrameSetup(FILCUpdatePrimTaskData& OutILCTaskData);
+	
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	FORCEINLINE int GetNumViewsWithVxgi()
+	{
+		return Views.Num() + (VxgiView ? 1 : 0);
+	}
+
+	FORCEINLINE FViewInfo& GetViewWithVxgi(int ViewIndex)
+	{
+		return (ViewIndex < Views.Num()) ? Views[ViewIndex] : *VxgiView;
+	}
+
+	void InitVxgiView();
+	bool IsVxgiEnabled(const FViewInfo& View);
+	bool IsVxgiEnabled();
+	VXGI::Box3f GetVxgiWorldSpaceSceneBounds();
+	void PrepareForVxgiOpacityVoxelization(FRHICommandList& RHICmdList);
+	void PrepareForVxgiEmittanceVoxelization(FRHICommandList& RHICmdList);
+	void VoxelizeVxgiOpacity(FRHICommandList& RHICmdList);
+	void VoxelizeVxgiEmittance(FRHICommandList& RHICmdList);
+	bool InitializeVxgiVoxelizationParameters(FRHICommandList& RHICmdList);
+	void RenderVxgiVoxelization(FRHICommandList& RHICmdList);
+	void RenderVxgiVoxelizationPass(FRHICommandList& RHICmdList, int32 VoxelizationPass, const VXGI::EmittanceVoxelizationArgs& Args);
+	void RenderVxgiTracing(FRHICommandListImmediate& RHICmdList);
+	void EndVxgiFinalPostProcessSettings(FFinalPostProcessSettings& FinalPostProcessSettings, const VXGI::VoxelizationParameters& VParams);
+
+	void SetVxgiDiffuseTracingParameters(const FViewInfo& View, VXGI::DiffuseTracingParameters &TracingParams);
+	void SetVxgiSpecularTracingParameters(const FViewInfo& View, VXGI::SpecularTracingParameters &TracingParams);
+	void SetVxgiInputBuffers(FSceneRenderTargets& SceneContext, const FViewInfo& View, VXGI::IViewTracer::InputBuffers& InputBuffers, VXGI::IViewTracer::InputBuffers& InputBuffersPreviousFrame);
+	void PrepareVxgiGBuffer(FRHICommandListImmediate& RHICmdList, const FViewInfo& View);
+	void RenderVxgiTracingForView(FRHICommandListImmediate& RHICmdList, const FViewInfo& View);
+	void CompositeVxgiDiffuseTracing(FRHICommandListImmediate& RHICmdList, const FViewInfo& View);
+	void RenderVxgiDebug(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, int ViewIndex);
+	void SetVxgiVoxelizationParameters(VXGI::VoxelizationParameters& Params);
+	void InitVxgiRenderingState(const FSceneViewFamily* InViewFamily);
+
+	FViewInfo* VxgiView;
+	float VxgiRange;
+	FVector VxgiAnchorPoint;
+	FBoxSphereBounds VxgiClipmapBounds;
+	VXGI::VoxelizationParameters VxgiVoxelizationParameters;
+	bool bVxgiPerformOpacityVoxelization;
+	bool bVxgiPerformEmittanceVoxelization;
+	bool bVxgiUseDiffuseMaterials;
+	bool bVxgiUseEmissiveMaterials;
+	bool bVxgiDebugRendering;
+	bool bVxgiTemporalReprojectionEnable;
+	bool bVxgiAmbientOcclusionMode;
+	bool bVxgiMultiBounceEnable;
+	bool bVxgiEmissiveMaterialsEnable;
+	bool bVxgiSkyLightEnable;
+#else
+	FORCEINLINE int GetNumViewsWithVxgi()
+	{
+		return Views.Num();
+	}
+
+	FORCEINLINE FViewInfo& GetViewWithVxgi(int ViewIndex)
+	{
+		return Views[ViewIndex];
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	void GatherDynamicMeshElements(
 		TArray<FViewInfo>& InViews, 

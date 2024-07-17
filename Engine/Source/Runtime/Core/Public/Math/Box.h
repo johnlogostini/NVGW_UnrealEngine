@@ -7,6 +7,11 @@
 #include "Math/UnrealMathUtility.h"
 #include "Containers/UnrealString.h"
 #include "Math/Vector.h"
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+#include "GFSDK_VXGI.h"
+#endif
+// NVCHANGE_END: Add VXGI
 
 /**
  * Implements an axis-aligned box.
@@ -60,6 +65,16 @@ public:
 		, Max(InMax)
 		, IsValid(1)
 	{ }
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	FBox(const VXGI::Box3f& VxgiBox)
+		: Min(FVector(VxgiBox.lower.x, VxgiBox.lower.y, VxgiBox.lower.z))
+		, Max(FVector(VxgiBox.upper.x, VxgiBox.upper.y, VxgiBox.upper.z))
+		, IsValid(1)
+	{ }
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	/**
 	 * Creates and initializes a new box from the given set of points.

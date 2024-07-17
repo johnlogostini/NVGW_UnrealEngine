@@ -31,6 +31,9 @@
 #include "Containers/ArrayView.h"
 #include "PipelineStateCache.h"
 #include "ClearQuad.h"
+// WaveWorks Start
+#include "Engine/TextureRenderTarget2D.h"
+// WaveWorks End
 
 template< bool bEnablePlanarReflectionPrefilter >
 class FPrefilterPlanarReflectionPS : public FGlobalShader
@@ -201,7 +204,15 @@ static void UpdatePlanarReflectionContents_RenderThread(
 	for (int32 ViewIndex = 0; ViewIndex < SceneRenderer->Views.Num(); ++ViewIndex)
 	{
 		FViewInfo& View = SceneRenderer->Views[ViewIndex];
+// WaveWorks Start
+#if WITH_WAVEWORKS
+		if (View.ViewFrustum.IntersectBox(PlanarReflectionBounds.GetCenter(), PlanarReflectionBounds.GetExtent()) || SceneProxy->bAlwaysVisible)
+#else
+// WaveWorks End
 		if (View.ViewFrustum.IntersectBox(PlanarReflectionBounds.GetCenter(), PlanarReflectionBounds.GetExtent()))
+// WaveWorks Start
+#endif	
+// WaveWorks End
 		{
 			bIsInAnyFrustum = true;
 			break;
@@ -243,7 +254,15 @@ static void UpdatePlanarReflectionContents_RenderThread(
 			}
 		}
 
+// WaveWorks Start
+#if WITH_WAVEWORKS
+		if (bIsVisibleInAnyView || SceneProxy->bAlwaysVisible)
+#else
+// WaveWorks End
 		if (bIsVisibleInAnyView)
+// WaveWorks Start
+#endif
+// WaveWorks End
 		{
 			// update any resources that needed a deferred update
 			FDeferredUpdateResource::UpdateResources(RHICmdList);
@@ -333,6 +352,17 @@ void FScene::UpdatePlanarReflectionContents(UPlanarReflectionComponent* CaptureC
 	check(CaptureComponent);
 
 	{
+// WaveWorks Start
+#if WITH_WAVEWORKS
+		// add hidden waveworks actors
+		CaptureComponent->HiddenComponents.Reset(0);
+		for (int32 Index = 0, NumActors = CaptureComponent->HiddenActors.Num(); Index < NumActors; ++Index)
+		{
+			CaptureComponent->HideActorComponents(CaptureComponent->HiddenActors[Index]);
+		}
+#endif
+// WaveWorks End
+
 		FVector2D DesiredPlanarReflectionTextureSizeFloat = FVector2D(MainSceneRenderer.ViewFamily.FamilySizeX, MainSceneRenderer.ViewFamily.FamilySizeY) * .01f * FMath::Clamp(CaptureComponent->ScreenPercentage, 25, 100);
 		FIntPoint DesiredPlanarReflectionTextureSize;
 		DesiredPlanarReflectionTextureSize.X = FMath::Clamp(FMath::TruncToInt(DesiredPlanarReflectionTextureSizeFloat.X), 1, static_cast<int32>(MainSceneRenderer.ViewFamily.FamilySizeX));
@@ -354,6 +384,16 @@ void FScene::UpdatePlanarReflectionContents(UPlanarReflectionComponent* CaptureC
 		if (CaptureComponent->RenderTarget == NULL)
 		{
 			CaptureComponent->RenderTarget = new FPlanarReflectionRenderTarget(DesiredPlanarReflectionTextureSize);
+
+// WaveWorks Start
+#if WITH_WAVEWORKS
+			if (CaptureComponent->TextureTarget != NULL)
+			{
+				CaptureComponent->TextureTarget->InitCustomFormat(DesiredPlanarReflectionTextureSize.X, DesiredPlanarReflectionTextureSize.Y, PF_A16B16G16R16, false);
+				CaptureComponent->TextureTarget->ClearColor = FLinearColor::Black;
+			}
+#endif
+// WaveWorks End
 
 			ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER( 
 				InitRenderTargetCommand,
@@ -405,7 +445,19 @@ void FScene::UpdatePlanarReflectionContents(UPlanarReflectionComponent* CaptureC
 		
 		FPostProcessSettings PostProcessSettings;
 
+// WaveWorks Start
+#if WITH_WAVEWORKS
+// WaveWorks End
+		FSceneRenderer* SceneRenderer = NULL;
+		if (CaptureComponent->TextureTarget != NULL)
+			SceneRenderer = CreateSceneRendererForSceneCapture(this, CaptureComponent, CaptureComponent->TextureTarget->GameThread_GetRenderTargetResource(), DesiredPlanarReflectionTextureSize, SceneCaptureViewInfo, CaptureComponent->MaxViewDistanceOverride, true, true, &PostProcessSettings, 1.0f, /*ViewActor =*/nullptr);
+		else
+			SceneRenderer = CreateSceneRendererForSceneCapture(this, CaptureComponent, CaptureComponent->RenderTarget, DesiredPlanarReflectionTextureSize, SceneCaptureViewInfo, CaptureComponent->MaxViewDistanceOverride, true, true, &PostProcessSettings, 1.0f, /*ViewActor =*/nullptr);
+// WaveWorks Start
+#else
 		FSceneRenderer* SceneRenderer = CreateSceneRendererForSceneCapture(this, CaptureComponent, CaptureComponent->RenderTarget, DesiredPlanarReflectionTextureSize, SceneCaptureViewInfo, CaptureComponent->MaxViewDistanceOverride, true, true, &PostProcessSettings, 1.0f, /*ViewActor =*/nullptr);
+#endif
+// WaveWorks End
 
 		for (int32 ViewIndex = 0; ViewIndex < SceneCaptureViewInfo.Num(); ++ViewIndex)
 		{
@@ -692,6 +744,9 @@ void FPlanarReflectionParameters::SetParameters(FRHICommandList& RHICmdList, FPi
 		SetShaderValue(RHICmdList, ShaderRHI, PlanarReflectionParameters, ReflectionSceneProxy->PlanarReflectionParameters);
 		SetShaderValue(RHICmdList, ShaderRHI, PlanarReflectionParameters2, ReflectionSceneProxy->PlanarReflectionParameters2);
 		SetShaderValue(RHICmdList, ShaderRHI, IsStereoParameter, ReflectionSceneProxy->bIsStereo);
+// WaveWorks Start
+		SetShaderValue(RHICmdList, ShaderRHI, PlanarReflectionWaveWorksParameters, ReflectionSceneProxy->PlanarReflectionWaveWorksParameters);
+// WaveWorks End
 
 		// Instanced stereo needs both view's values available at once
 		if (ReflectionSceneProxy->bIsStereo || View.Family->Views.Num() == 1)

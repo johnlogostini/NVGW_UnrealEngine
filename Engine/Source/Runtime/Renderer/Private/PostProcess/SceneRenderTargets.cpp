@@ -606,25 +606,25 @@ void FSceneRenderTargets::BeginRenderingGBuffer(FRHICommandList& RHICmdList, ERe
 	const ERenderTargetStoreAction DepthStoreAction = (DepthStencilAccess & FExclusiveDepthStencil::DepthWrite) ? ERenderTargetStoreAction::EStore : ERenderTargetStoreAction::ENoAction;
 	FRHIDepthRenderTargetView DepthView(GetSceneDepthSurface(), DepthLoadAction, DepthStoreAction, DepthStencilAccess);
 
-	bool bClearColor = ColorLoadAction == ERenderTargetLoadAction::EClear;
-	bool bClearDepth = DepthLoadAction == ERenderTargetLoadAction::EClear;
+		bool bClearColor = ColorLoadAction == ERenderTargetLoadAction::EClear;
+		bool bClearDepth = DepthLoadAction == ERenderTargetLoadAction::EClear;
 
-	//if the desired clear color doesn't match the bound hwclear value, or there isn't one at all (editor code)
-	//then we need to fall back to a shader clear.
-	const FTextureRHIRef& SceneColorTex = GetSceneColorSurface();
-	bool bShaderClear = false;
-	if (bClearColor)
-	{
-		if (!SceneColorTex->HasClearValue() || (ClearColor != SceneColorTex->GetClearColor()))
+		//if the desired clear color doesn't match the bound hwclear value, or there isn't one at all (editor code)
+		//then we need to fall back to a shader clear.
+		const FTextureRHIRef& SceneColorTex = GetSceneColorSurface();
+		bool bShaderClear = false;
+		if (bClearColor)
 		{
-			ColorLoadAction = ERenderTargetLoadAction::ENoAction;
-			bShaderClear = true;
+			if (!SceneColorTex->HasClearValue() || (ClearColor != SceneColorTex->GetClearColor()))
+			{
+				ColorLoadAction = ERenderTargetLoadAction::ENoAction;
+				bShaderClear = true;
+			}
+			else
+			{
+				bGBuffersFastCleared = true;
+			}
 		}
-		else
-		{
-			bGBuffersFastCleared = true;
-		}
-	}
 
 	int32 VelocityRTIndex = -1;
 	int32 MRTCount;
@@ -639,39 +639,39 @@ void FSceneRenderTargets::BeginRenderingGBuffer(FRHICommandList& RHICmdList, ERe
 		MRTCount = GetGBufferRenderTargets(ColorLoadAction, RenderTargets, VelocityRTIndex);
 	}
 
-	//make sure our conditions for shader clear fallback are valid.
-	check(RenderTargets[0].Texture == SceneColorTex);
+		//make sure our conditions for shader clear fallback are valid.
+		check(RenderTargets[0].Texture == SceneColorTex);
 
-	FRHISetRenderTargetsInfo Info(MRTCount, RenderTargets, DepthView);
+		FRHISetRenderTargetsInfo Info(MRTCount, RenderTargets, DepthView);
 
-	if (bClearDepth)
-	{
-		bSceneDepthCleared = true;
-	}
-
-	SetQuadOverdrawUAV(RHICmdList, bBindQuadOverdrawBuffers, Info);
-
-	// set the render target
-	RHICmdList.SetRenderTargetsAndClear(Info);
-	if (bShaderClear)
-	{
-		FLinearColor ClearColors[MaxSimultaneousRenderTargets];
-		FTextureRHIParamRef Textures[MaxSimultaneousRenderTargets];
-		ClearColors[0] = ClearColor;
-		Textures[0] = RenderTargets[0].Texture;
-		for (int32 i = 1; i < MRTCount; ++i)
+		if (bClearDepth)
 		{
-			ClearColors[i] = RenderTargets[i].Texture->GetClearColor();
-			Textures[i] = RenderTargets[i].Texture;
+			bSceneDepthCleared = true;
 		}
-		//depth/stencil should have been handled by the fast clear.  only color for RT0 can get changed.
-		DrawClearQuadMRT(RHICmdList, true, MRTCount, ClearColors, false, 0, false, 0);
-	}
 
-	//bind any clear data that won't be bound automatically by the preceding SetRenderTargetsAndClear
-	bool bBindClearColor = !bClearColor && bGBuffersFastCleared;
-	bool bBindClearDepth = !bClearDepth && bSceneDepthCleared;
-	RHICmdList.BindClearMRTValues(bBindClearColor, bBindClearDepth, bBindClearDepth);
+		SetQuadOverdrawUAV(RHICmdList, bBindQuadOverdrawBuffers, Info);
+
+		// set the render target
+		RHICmdList.SetRenderTargetsAndClear(Info);
+		if (bShaderClear)
+		{
+			FLinearColor ClearColors[MaxSimultaneousRenderTargets];
+			FTextureRHIParamRef Textures[MaxSimultaneousRenderTargets];
+			ClearColors[0] = ClearColor;
+			Textures[0] = RenderTargets[0].Texture;
+			for (int32 i = 1; i < MRTCount; ++i)
+			{
+				ClearColors[i] = RenderTargets[i].Texture->GetClearColor();
+				Textures[i] = RenderTargets[i].Texture;
+			}
+			//depth/stencil should have been handled by the fast clear.  only color for RT0 can get changed.
+			DrawClearQuadMRT(RHICmdList, true, MRTCount, ClearColors, false, 0, false, 0);
+		}
+
+		//bind any clear data that won't be bound automatically by the preceding SetRenderTargetsAndClear
+		bool bBindClearColor = !bClearColor && bGBuffersFastCleared;
+		bool bBindClearDepth = !bClearDepth && bSceneDepthCleared;
+		RHICmdList.BindClearMRTValues(bBindClearColor, bBindClearDepth, bBindClearDepth);
 }
 
 void FSceneRenderTargets::FinishRenderingGBuffer(FRHICommandListImmediate& RHICmdList)
@@ -1354,6 +1354,37 @@ void FSceneRenderTargets::BeginRenderingTranslucency(FRHICommandList& RHICmdList
 	RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
 }
 
+// WaveWorks Start
+void FSceneRenderTargets::BeginRenderingWaveWorks(FRHICommandList& RHICmdList, const FViewInfo& View, bool bFirstTimeThisFrame)
+{	
+	SCOPED_DRAW_EVENT(RHICmdList, BeginWaveWorks);
+
+	TRefCountPtr<IPooledRenderTarget>* WaveWorksRT = &GetSceneColor();
+	const FTexture2DRHIRef &WaveWorksDepth = (const FTexture2DRHIRef&)GetWaveWorksDepthRT(RHICmdList, GetBufferSizeXY())->GetRenderTargetItem().TargetableTexture;
+
+	SetRenderTarget(RHICmdList, (*WaveWorksRT)->GetRenderTargetItem().TargetableTexture, WaveWorksDepth,
+		ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthWrite_StencilWrite);
+
+	RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
+}
+
+void FSceneRenderTargets::FinishRenderingWaveWorks(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, FinishWaveWorks);
+
+	TRefCountPtr<IPooledRenderTarget>* WaveWorksRT;
+	TRefCountPtr<IPooledRenderTarget>* WaveWorksDepthRT;
+	{
+		FIntPoint ScaledSize = GetBufferSizeXY();
+		WaveWorksRT = &GetSceneColor();
+		WaveWorksDepthRT = &GetWaveWorksDepthRT(RHICmdList, ScaledSize);
+	}
+
+	RHICmdList.CopyToResolveTarget((*WaveWorksRT)->GetRenderTargetItem().TargetableTexture, (*WaveWorksRT)->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams());
+	RHICmdList.CopyToResolveTarget((*WaveWorksDepthRT)->GetRenderTargetItem().TargetableTexture, (*WaveWorksDepthRT)->GetRenderTargetItem().ShaderResourceTexture, true, FResolveParams());
+}
+// WaveWorks End
+
 void FSceneRenderTargets::BeginRenderingSeparateTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View, bool bFirstTimeThisFrame)
 {
 	bSeparateTranslucencyPass = true;
@@ -1571,6 +1602,20 @@ void FSceneRenderTargets::ResolveSceneDepthToAuxiliaryTexture(FRHICommandList& R
 		RHICmdList.CopyToResolveTarget(GetSceneDepthSurface(), GetAuxiliarySceneDepthTexture(), true, FResolveParams());
 	}
 }
+
+// WaveWorks Start
+TRefCountPtr<IPooledRenderTarget>& FSceneRenderTargets::GetWaveWorksDepthRT(FRHICommandList& RHICmdList, FIntPoint Size)
+{
+	if (!WaveWorksDepthRT || WaveWorksDepthRT->GetDesc().Extent != Size)
+	{
+		// Create the SeparateTranslucency depth render target 
+		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(Size, PF_DepthStencil, FClearValueBinding::None, TexCreate_None, TexCreate_DepthStencilTargetable, false));
+		Desc.NumSamples = GetNumSceneColorMSAASamples(CurrentFeatureLevel);
+		GRenderTargetPool.FindFreeElement(RHICmdList, Desc, WaveWorksDepthRT, TEXT("WaveWorksDepthRT"));
+	}
+	return WaveWorksDepthRT;
+}
+// WaveWorks End
 
 void FSceneRenderTargets::CleanUpEditorPrimitiveTargets()
 {
@@ -1855,7 +1900,7 @@ void FSceneRenderTargets::AllocateCommonDepthTargets(FRHICommandList& RHICmdList
 			if (SceneDepthZ->GetRenderTargetItem().ShaderResourceTexture == SceneDepthZ->GetRenderTargetItem().TargetableTexture)
 			{
 				SceneDepthZ->GetRenderTargetItem().ShaderResourceTexture = SceneDepthZ->GetRenderTargetItem().TargetableTexture = SRTex;
-			}
+		}
 			else
 			{
 				SceneDepthZ->GetRenderTargetItem().ShaderResourceTexture = SRTex;
@@ -1872,6 +1917,16 @@ void FSceneRenderTargets::AllocateCommonDepthTargets(FRHICommandList& RHICmdList
 		// TODO: This should be handled by the HMD depth target swap chain, but currently it only updates the depth SRV.
 		SceneStencilSRV = RHICreateShaderResourceView((FTexture2DRHIRef&)SceneDepthZ->GetRenderTargetItem().TargetableTexture, 0, 1, PF_X24_G8);
 	}
+	
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	if (!VxgiNormalAndRoughness)
+	{
+		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(BufferSize, PF_FloatRGBA, FClearValueBinding::Black, TexCreate_None, TexCreate_RenderTargetable, false));
+		GRenderTargetPool.FindFreeElement(RHICmdList, Desc, VxgiNormalAndRoughness, TEXT("VxgiNormalAndRoughness"));
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	// When targeting DX Feature Level 10, create an auxiliary texture to store the resolved scene depth, and a render-targetable surface to hold the unresolved scene depth.
 	if (!AuxiliarySceneDepthZ && !GSupportsDepthFetchDuringDepthTest)
@@ -2022,8 +2077,8 @@ void FSceneRenderTargets::AllocateDeferredShadingPathRenderTargets(FRHICommandLi
 			if (!GUseTranslucentLightingVolumes)
 			{
 				ClearTranslucentVolumeLighting(RHICmdList);
-			}
 		}
+	}
 	}
 
 	// LPV : Dynamic directional occlusion for diffuse and specular
@@ -2169,7 +2224,7 @@ EPixelFormat FSceneRenderTargets::GetSceneColorFormat() const
 	if (CurrentFeatureLevel < ERHIFeatureLevel::SM4)
 	{
 		return GetMobileSceneColorFormat();
-	}
+		}
 	else
     {
 	    switch(CurrentSceneColorFormat)
@@ -2260,6 +2315,13 @@ void FSceneRenderTargets::ReleaseAllTargets()
 	{
 		OptionalShadowDepthColor[i].SafeRelease();
 	}
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	VxgiOutputDiffuse.Reset();
+	VxgiOutputSpec.Reset();
+	VxgiNormalAndRoughness.SafeRelease();
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	for (int32 i = 0; i < ARRAY_COUNT(ReflectionColorScratchCubemap); i++)
 	{
@@ -2761,21 +2823,21 @@ void FSceneTextureShaderParameters::Set(
 				if(SceneDepthTextureNonMS.IsBound())
 				{
 				SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthTextureNonMS, DepthAuxiliarySurface);
+				}
 			}
-		}
 
 		if (SceneStencilTextureParameter.IsBound())
 		{
 			if (SceneStencilSRV)
 			{
 				SetSRVParameter(RHICmdList, ShaderRHI, SceneStencilTextureParameter, SceneStencilSRV);
-			}
+		}
 			else
 			{
 				SetTextureParameter(RHICmdList, ShaderRHI, SceneStencilTextureParameter, GSystemTextures.BlackDummy->GetRenderTargetItem().ShaderResourceTexture);
-				}
 			}
 		}
+	}
 
 		if (FeatureLevel <= ERHIFeatureLevel::ES3_1)
 		{
@@ -2892,6 +2954,13 @@ void FDeferredPixelShaderParameters::Bind(const FShaderParameterMap& ParameterMa
 	CustomDepthTextureSampler.Bind(ParameterMap,TEXT("CustomDepthTextureSampler"));
 	CustomStencilTexture.Bind(ParameterMap,TEXT("CustomStencilTexture"));
 	DBufferRenderMask.Bind(ParameterMap, TEXT("DBufferMask"));
+
+	// NVCHANGE_BEGIN: Add VXGI
+	VxgiDiffuseTexture.Bind(ParameterMap, TEXT("VxgiDiffuseTexture"));
+	VxgiDiffuseTextureSampler.Bind(ParameterMap, TEXT("VxgiDiffuseTextureSampler"));
+	VxgiSpecularTexture.Bind(ParameterMap, TEXT("VxgiSpecularTexture"));
+	VxgiSpecularTextureSampler.Bind(ParameterMap, TEXT("VxgiSpecularTextureSampler"));
+	// NVCHANGE_END: Add VXGI
 }
 
 bool IsDBufferEnabled();
@@ -3008,6 +3077,12 @@ void FDeferredPixelShaderParameters::Set(TRHICmdList& RHICmdList, const ShaderRH
 		SetTextureParameter(RHICmdList, ShaderRHI, ScreenSpaceAOTexture, ScreenSpaceAOTextureSampler, TStaticSamplerState<>::GetRHI(), ScreenSpaceAOShaderResource);
 		SetTextureParameter(RHICmdList, ShaderRHI, ScreenSpaceAOTextureMS, ScreenSpaceAOSTargetable);
 		SetTextureParameter(RHICmdList, ShaderRHI, ScreenSpaceAOTextureNonMS, ScreenSpaceAOShaderResource);
+		// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI	
+		SetTextureParameter(RHICmdList, ShaderRHI, VxgiDiffuseTexture, VxgiDiffuseTextureSampler, TStaticSamplerState<>::GetRHI(), SceneContext.GetVxgiOutputDiffuse(View.VxgiViewIndex));
+		SetTextureParameter(RHICmdList, ShaderRHI, VxgiSpecularTexture, VxgiSpecularTextureSampler, TStaticSamplerState<>::GetRHI(), SceneContext.GetVxgiOutputSpecular(View.VxgiViewIndex));
+#endif
+		// NVCHANGE_END: Add VXGI
 
 		SetTextureParameter(RHICmdList, ShaderRHI, CustomDepthTextureNonMS, CustomDepth);
 
@@ -3020,9 +3095,9 @@ void FDeferredPixelShaderParameters::Set(TRHICmdList& RHICmdList, const ShaderRH
 				else
 				{
 				SetTextureParameter(RHICmdList, ShaderRHI, CustomStencilTexture, BlackDefault2D);
+				}
 			}
 		}
-	}
 }
 
 #define IMPLEMENT_DEFERRED_PARAMETERS_SET( ShaderRHIParamRef, TRHICmdList ) \
@@ -3075,6 +3150,13 @@ FArchive& operator<<(FArchive& Ar,FDeferredPixelShaderParameters& Parameters)
 	Ar << Parameters.CustomDepthTexture;
 	Ar << Parameters.CustomDepthTextureSampler;
 	Ar << Parameters.CustomStencilTexture;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	Ar << Parameters.VxgiDiffuseTexture;
+	Ar << Parameters.VxgiDiffuseTextureSampler;
+	Ar << Parameters.VxgiSpecularTexture;
+	Ar << Parameters.VxgiSpecularTextureSampler;
+	// NVCHANGE_END: Add VXGI
 
 	return Ar;
 }

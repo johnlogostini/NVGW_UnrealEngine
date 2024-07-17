@@ -276,6 +276,32 @@ public:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category=Collision)
 	uint8 bReturnMaterialOnMove:1;
 
+	/**
+	 * If this component acts as parent for Flex objects then this should be ticked to ensure correct collision handling
+	 */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category = Collision)
+	uint32 bIsFlexParent : 1;
+
+	/**
+	 * If true, flex particles will be deleted on contact (no support for triangle mesh or height field colliders)
+	 */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category = Collision)
+	uint32 bFlexParticleDrain : 1;
+
+	/**
+	 * If true, flex particles will be counted on contact (no support for triangle mesh or height field colliders)
+	 * @see FlexParticleCount
+	 */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, BlueprintReadWrite, Category = Collision)
+	uint32 bFlexEnableParticleCounter : 1;
+
+	/**
+	 * Flex particle count accessible from blueprint (no support for triangle mesh or height field colliders)
+	 * @see bFlexEnableParticleCounter
+	 */
+	UPROPERTY(BlueprintReadWrite, Category = Collision)
+	int32 FlexParticleCount;
+
 	/** True if the primitive should be rendered using ViewOwnerDepthPriorityGroup if viewed by its owner. */
 	UPROPERTY()
 	uint8 bUseViewOwnerDepthPriorityGroup:1;
@@ -1996,6 +2022,12 @@ public:
 	/** Returns the mass of this component in kg. */
 	UFUNCTION(BlueprintPure, Category="Physics", meta=(UnsafeDuringActorConstruction="true"))
 	virtual float GetMass() const;
+
+// WaveWorks Start
+	/** Returns the volume of this component in cm^3. */
+	UFUNCTION(BlueprintCallable, Category = "Physics", meta = (UnsafeDuringActorConstruction = "true"))
+	virtual float GetVolume() const;
+// WaveWorks End
 
 	/** Returns the inertia tensor of this component in kg cm^2. The inertia tensor is in local component space.*/
 	UFUNCTION(BlueprintPure, Category = "Physics", meta =(Keywords = "physics moment of inertia tensor MOI", UnsafeDuringActorConstruction="true"))

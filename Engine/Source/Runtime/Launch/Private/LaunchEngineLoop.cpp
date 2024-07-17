@@ -1750,6 +1750,8 @@ int32 FEngineLoop::PreInit( const TCHAR* CmdLine )
 
 	FShaderCache::LoadBinaryCache();
 
+	InitGamePhysPostRHI();
+
 	if (!FPlatformProperties::RequiresCookedData())
 	{
 		check(!GShaderCompilingManager);

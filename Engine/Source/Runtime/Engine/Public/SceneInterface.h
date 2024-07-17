@@ -148,6 +148,9 @@ public:
 	*/
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponent2D* CaptureComponent) {}
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponentCube* CaptureComponent) {}
+// WaveWorks Start
+	virtual void UpdateSceneCaptureContents(class UWaveWorksShorelineCaptureComponent* CaptureComponent) {}
+// WaveWorks End
 	virtual void UpdatePlanarReflectionContents(class UPlanarReflectionComponent* CaptureComponent, class FSceneRenderer& MainSceneRenderer) {}
 
 	virtual void AddPrecomputedLightVolume(const class FPrecomputedLightVolume* Volume) {}
@@ -301,6 +304,13 @@ public:
 	}
 
 	virtual void UpdateSceneSettings(AWorldSettings* WorldSettings) {}
+
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	virtual void UpdateVolumetricLightingSettings(AWorldSettings* WorldSettings) {}
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 
 	/**
 	* Gets the GPU Skin Cache system associated with the scene.

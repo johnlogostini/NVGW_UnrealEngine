@@ -63,6 +63,37 @@
 
 #define IS_MESHPARTICLE_FACTORY (PARTICLE_MESH_FACTORY || NIAGARA_MESH_FACTORY)
 
+// NVCHANGE_BEGIN: Add VXGI
+float GetVxgiVoxelizationActive()
+{
+#if VXGI_VOXELIZATION_SHADER
+	return 1.f;
+#else
+	return 0.f;
+#endif
+}
+
+float3 VxgiTraceConeWrapper(float3 StartPos, float3 Direction, float ConeFactor, float InitialOffset, float TracingStep, int MaxSamples)
+{
+#if ENABLE_VXGI_CONE_TRACING
+	VxgiConeTracingArguments Args = VxgiDefaultConeTracingArguments();
+
+	Args.direction = normalize(Direction);
+	Args.coneFactor = min(1.0, max(0.01, ConeFactor));
+	Args.firstSampleT = max(0, InitialOffset);
+	Args.firstSamplePosition = StartPos + Args.direction * Args.firstSampleT;
+	Args.tracingStep = min(1.0, max(0.01, TracingStep));
+	Args.maxSamples = max(1, MaxSamples);
+
+	VxgiConeTracingResults Results = VxgiTraceCone(Args);
+
+	return Results.irradiance;
+#else
+	return 0.f;
+#endif
+}
+// NVCHANGE_END: Add VXGI
+
 /**
  * Parameters used by vertex and pixel shaders to access particle properties.
  */
@@ -219,6 +250,17 @@ struct FMaterialPixelParameters
 	// Function overload resolution appears to identify types based on how many floats / ints / etc they contain
 	uint Dummy;
 #endif
+
+// WaveWorks Start
+#if WITH_GFSDK_WAVEWORKS
+	float3	WaveWorksNormal;
+	float	WaveWorksFoamSurfaceFolding;
+	float	WaveWorksFoamTurbulentEnergy;
+	float	WaveWorksFoamWaveHats;
+	float3	WaveWorksWorldPosUndisplaced;
+	float	WaveWorksDistanceToShoreline;
+#endif
+// WaveWorks End
 };
 
 // @todo compat hack
@@ -248,6 +290,12 @@ struct FMaterialTessellationParameters
 
 	// TangentToWorld[2] is WorldVertexNormal, [0] and [1] are binormal and tangent
 	float3x3 TangentToWorld;
+
+// WaveWorks Start
+#if WITH_GFSDK_WAVEWORKS
+	float3 WaveWorksDisplacement;
+#endif
+// WaveWorks End
 };
 
 /** 
@@ -1078,6 +1126,55 @@ float3 GetSpeedTreeVertexOffset(FMaterialVertexParameters Parameters, int Geomet
 
 #endif
 
+// WaveWorks Start
+/** Tessellation shader for WaveWorks */
+float3 WaveWorksDisplacement(FMaterialTessellationParameters Parameters)
+{
+#if WITH_GFSDK_WAVEWORKS
+	return Parameters.WaveWorksDisplacement;
+#else
+	return float3(0, 0, 0);
+#endif
+}
+
+/** Pixel shader for WaveWorks */
+float3 WaveWorksNormal(FMaterialPixelParameters Parameters)
+{
+#if WITH_GFSDK_WAVEWORKS
+	return normalize(Parameters.WaveWorksNormal);
+#else
+	return float3(0, 0, 0);
+#endif
+}
+
+float3 WaveWorksFoam(FMaterialPixelParameters Parameters)
+{
+#if WITH_GFSDK_WAVEWORKS
+	return float3(Parameters.WaveWorksFoamSurfaceFolding, Parameters.WaveWorksFoamTurbulentEnergy, Parameters.WaveWorksFoamWaveHats);
+#else
+	return float3(0, 0, 0);
+#endif
+}
+
+float3 WaveWorksWorldPosUndisplaced(FMaterialPixelParameters Parameters)
+{
+#if WITH_GFSDK_WAVEWORKS
+	return Parameters.WaveWorksWorldPosUndisplaced;
+#else
+	return float3(0, 0, 0);
+#endif
+}
+
+float WaveWorksDistanceToShoreline(FMaterialPixelParameters Parameters)
+{
+#if WITH_GFSDK_WAVEWORKS
+	return Parameters.WaveWorksDistanceToShoreline;
+#else
+	return 1;
+#endif
+}
+// WaveWorks End
+
 MaterialFloat2 GetLightmapUVs(FMaterialPixelParameters Parameters)
 {
 #if LIGHTMAP_UV_ACCESS
@@ -1252,6 +1349,12 @@ float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered)
 		case 25: return float4(ScreenSpaceData.GBuffer.StoredBaseColor, 0);
 		// PPI_StoredSpecular
 		case 26: return float4(ScreenSpaceData.GBuffer.StoredSpecular.rrr, 0);
+		// NVCHANGE_BEGIN: Add VXGI
+		// PPI_VxgiDiffuse
+		case 27: return ScreenSpaceData.VxgiDiffuse;
+		// PPI_VxgiSpecular
+		case 28: return ScreenSpaceData.VxgiSpecular;
+		// NVCHANGE_END: Add VXGI
 		default:
 			return float4(0, 0, 0, 0);
 	}

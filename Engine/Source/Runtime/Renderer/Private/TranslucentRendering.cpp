@@ -15,6 +15,15 @@
 #include "PostProcess/SceneFilterRendering.h"
 #include "PipelineStateCache.h"
 
+// NvFlow begin
+#include "GameWorks/RendererHooksNvFlow.h"
+// NvFlow end
+
+// WaveWorks Start
+#include "WaveWorksRender.h"
+#include "WaveWorksResource.h"
+// WaveWorks End
+
 DECLARE_CYCLE_STAT(TEXT("TranslucencyTimestampQueryFence Wait"), STAT_TranslucencyTimestampQueryFence_Wait, STATGROUP_SceneRendering);
 DECLARE_CYCLE_STAT(TEXT("TranslucencyTimestampQuery Wait"), STAT_TranslucencyTimestampQuery_Wait, STATGROUP_SceneRendering);
 
@@ -68,6 +77,17 @@ static FAutoConsoleVariableRef CVarAllowDownsampledStandardTranslucency(
 	TEXT(" >0: on and ignores any material using blend modulate"),
 	ECVF_RenderThreadSafe
 	);
+
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+static TAutoConsoleVariable<int32> CVarVxgiCustomTracingEnable(
+	TEXT("r.VXGI.CustomTracingEnable"),
+	1,
+	TEXT("Allows materials to use VXGI cone tracing functions.\n")
+	TEXT("0: Disable, 1: Enable"),
+	ECVF_Default);
+#endif
+// NVCHANGE_END: Add VXGI
 
 /** Mostly used to know if debug rendering should be drawn in this pass */
 FORCEINLINE bool IsMainTranslucencyPass(ETranslucencyPass::Type TranslucencyPass)
@@ -250,6 +270,24 @@ void FDeferredShadingSceneRenderer::EndTimingSeparateTranslucencyPass(FRHIComman
 	}
 }
 
+// WaveWorks Start
+static void SetWaveWorksRenderTargetAndState(FRHICommandList& RHICmdList, const FViewInfo& View, bool bFirstTimeThisFrame = false)
+{
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+	SceneContext.BeginRenderingWaveWorks(RHICmdList, View, bFirstTimeThisFrame);
+}
+
+static void FinishWaveWorksRenderTarget(FRHICommandListImmediate& RHICmdList, const FViewInfo& View)
+{
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_FinishWaveWorksRenderTarget);
+
+	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+	SceneContext.FinishRenderingWaveWorks(RHICmdList, View);
+}
+// WaveWorks End
+// NVCHANGE_BEGIN: Add VXGI
+#include "VxgiRendering.h"
+// NVCHANGE_END: Add VXGI
 const FProjectedShadowInfo* FDeferredShadingSceneRenderer::PrepareTranslucentShadowMap(FRHICommandList& RHICmdList, const FViewInfo& View, FPrimitiveSceneInfo* PrimitiveSceneInfo, ETranslucencyPass::Type TranslucencyPass)
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_PrepareTranslucentShadowMap);
@@ -443,7 +481,144 @@ public:
 
 		const bool bRenderSkylight = Scene && Scene->ShouldRenderSkylightInBasePass(Parameters.BlendMode) && bIsLitMaterial;
 		const bool bRenderAtmosphericFog =(Scene && Scene->HasAtmosphericFog() && Scene->ReadOnlyCVARCache.bEnableAtmosphericFog) && View.Family->EngineShowFlags.AtmosphericFog && View.Family->EngineShowFlags.Fog;
+		
+// WaveWorks Start
+#if WITH_WAVEWORKS
+		bool bRenderWaveWorks = false;
+		if (Parameters.PrimitiveSceneProxy && Parameters.PrimitiveSceneProxy->IsQuadTreeWaveWorks())
+		{						
+			bRenderWaveWorks = true;
+			TBasePassWaveWorksDrawingPolicy<LightMapPolicyType> DrawingPolicy(
+				Parameters.Mesh.VertexFactory,
+				Parameters.Mesh.MaterialRenderProxy,
+				*Parameters.Material,
+				Parameters.FeatureLevel,
+				LightMapPolicy,
+				Parameters.BlendMode,
+				// Translucent meshes need scene render targets set as textures
+				ESceneRenderTargetsMode::SetTextures,
+				View.ViewMatrices.GetViewMatrix(),
+				View.ViewMatrices.GetProjectionMatrix(),
+				bRenderSkylight,
+				bRenderAtmosphericFog,
+				ComputeMeshOverrideSettings(Parameters.Mesh),				
+				View.Family->GetDebugViewShaderMode(),
+				false,
+				false);
+			DrawingPolicy.SetupPipelineState(DrawRenderState, View);
+			CommitGraphicsPipelineState(RHICmdList, DrawingPolicy, DrawRenderState, DrawingPolicy.GetBoundShaderStateInput(View.GetFeatureLevel()));
+			DrawingPolicy.SetSharedState(RHICmdList, DrawRenderState, &View, typename TBasePassWaveWorksDrawingPolicy<LightMapPolicyType>::ContextDataType(), bUseDownsampledTranslucencyViewUniformBuffer);
 
+FWaveWorksSceneProxy* SceneProxy = static_cast<FWaveWorksSceneProxy*>(const_cast<FPrimitiveSceneProxy*>(Parameters.PrimitiveSceneProxy));
+			DrawingPolicy.SetSharedWaveWorksState(RHICmdList, &View, SceneProxy->GetWaveWorksResource());
+
+			int32 BatchElementIndex = 0;
+			uint64 BatchElementMask = Parameters.BatchElementMask;
+			do
+			{
+				if (BatchElementMask & 1)
+				{
+					TDrawEvent<FRHICommandList> MeshEvent;
+					BeginMeshDrawEvent(RHICmdList, Parameters.PrimitiveSceneProxy, Parameters.Mesh, MeshEvent);
+
+					DrawingPolicy.SetMeshRenderState(
+						RHICmdList,
+						View,
+						Parameters.PrimitiveSceneProxy,
+						Parameters.Mesh,
+						BatchElementIndex,
+						DrawRenderState,
+						typename TBasePassWaveWorksDrawingPolicy<LightMapPolicyType>::ElementDataType(LightMapElementData),
+						typename TBasePassWaveWorksDrawingPolicy<LightMapPolicyType>::ContextDataType()
+					);
+
+					DrawingPolicy.SceneProxy = SceneProxy;
+					DrawingPolicy.DrawMesh(RHICmdList, Parameters.Mesh, BatchElementIndex);
+				}
+
+				BatchElementMask >>= 1;
+				BatchElementIndex++;
+			} while (BatchElementMask);
+		}
+#endif
+// WaveWorks End
+
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+		if (View.Family->bVxgiAvailable
+			&& Parameters.Material->GetVxgiMaterialProperties().bVxgiConeTracingEnabled
+			&& !Parameters.Material->IsPreviewMaterial()
+			&& CVarVxgiCustomTracingEnable.GetValueOnRenderThread())
+		{
+			TVXGIConeTracingDrawingPolicy<LightMapPolicyType> DrawingPolicy(
+				Parameters.Mesh.VertexFactory,
+				Parameters.Mesh.MaterialRenderProxy,
+				*Parameters.Material,
+				Parameters.FeatureLevel,
+				LightMapPolicy,
+				Parameters.BlendMode,
+				// Translucent meshes need scene render targets set as textures
+				ESceneRenderTargetsMode::SetTextures,
+				bIsLitMaterial && Scene && Scene->SkyLight && !Scene->SkyLight->bHasStaticLighting,
+				Scene && Scene->HasAtmosphericFog() && View.Family->EngineShowFlags.AtmosphericFog && View.Family->EngineShowFlags.Fog,
+				FMeshDrawingPolicyOverrideSettings(),
+				DVSM_None,
+				Parameters.bAllowFog
+			);
+
+			TVXGIConeTracingPS<LightMapPolicyType>* PixelShader = DrawingPolicy.GetVxgiPixelShader();
+
+			VXGI::IGlobalIllumination* VxgiInterface = GDynamicRHI->RHIVXGIGetInterface();
+
+			NVRHI::DrawCallState vxgiState;
+			VXGI::Status::Enum Status = VxgiInterface->setupUserDefinedConeTracingPixelShaderState(PixelShader->GetVxgiConeTracingPixelShaderSet(), vxgiState);
+			check(VXGI_SUCCEEDED(Status));
+
+			PixelShader->SetActualPixelShaderInUse((FPixelShaderRHIParamRef)vxgiState.PS.shader, vxgiState.PS.userDefinedShaderPermutationIndex);
+
+			DrawingPolicy.SetupPipelineState(DrawRenderState, View);
+			CommitGraphicsPipelineState(RHICmdList, DrawingPolicy, DrawRenderState, DrawingPolicy.GetBoundShaderStateInput(View.GetFeatureLevel()));
+			DrawingPolicy.SetSharedState(RHICmdList, DrawRenderState, &View, typename TBasePassDrawingPolicy<LightMapPolicyType>::ContextDataType(), bUseDownsampledTranslucencyViewUniformBuffer);
+
+			GDynamicRHI->RHIVXGISetCommandList(&RHICmdList);
+			GDynamicRHI->RHIVXGIApplyShaderResources(vxgiState);
+
+			// The code below is copied from the generic case
+
+			int32 BatchElementIndex = 0;
+			uint64 BatchElementMask = Parameters.BatchElementMask;
+			do
+			{
+				if (BatchElementMask & 1)
+				{
+					DrawingPolicy.SetMeshRenderState(
+						RHICmdList,
+						View,
+						Parameters.PrimitiveSceneProxy,
+						Parameters.Mesh,
+						BatchElementIndex,
+						DrawRenderState,
+						typename TBasePassDrawingPolicy<LightMapPolicyType>::ElementDataType(LightMapElementData),
+						typename TBasePassDrawingPolicy<LightMapPolicyType>::ContextDataType()
+					);
+					DrawingPolicy.DrawMesh(RHICmdList, Parameters.Mesh, BatchElementIndex);
+				}
+
+				BatchElementMask >>= 1;
+				BatchElementIndex++;
+			} while (BatchElementMask);
+
+			return;
+		}
+#endif
+		// NVCHANGE_END: Add VXGI
+
+// WaveWorks Start
+#if WITH_WAVEWORKS
+		if (!bRenderWaveWorks)
+		{
+#endif
+// WaveWorks End
 		TBasePassDrawingPolicy<LightMapPolicyType> DrawingPolicy(
 			Parameters.Mesh.VertexFactory,
 			Parameters.Mesh.MaterialRenderProxy,
@@ -462,6 +637,11 @@ public:
 		DrawingPolicy.SetupPipelineState(DrawRenderState, View);
 		CommitGraphicsPipelineState(RHICmdList, DrawingPolicy, DrawRenderState, DrawingPolicy.GetBoundShaderStateInput(View.GetFeatureLevel()));
 		DrawingPolicy.SetSharedState(RHICmdList, DrawRenderState, &View, typename TBasePassDrawingPolicy<LightMapPolicyType>::ContextDataType(), bUseDownsampledTranslucencyViewUniformBuffer);
+
+// WaveWorks Start
+		if(nullptr != Parameters.PrimitiveSceneProxy)
+			DrawingPolicy.SetSharedWaveWorksState(RHICmdList, &View, Parameters.PrimitiveSceneProxy->GetWaveWorksResource());
+// WaveWorks End
 
 		int32 BatchElementIndex = 0;
 		uint64 BatchElementMask = Parameters.BatchElementMask;
@@ -488,6 +668,11 @@ public:
 			BatchElementMask >>= 1;
 			BatchElementIndex++;
 		} while(BatchElementMask);
+// WaveWorks Start
+#if WITH_WAVEWORKS
+		}
+#endif
+// WaveWorks End
 	}
 };
 
@@ -517,7 +702,7 @@ bool FTranslucencyDrawingPolicyFactory::DrawMesh(
 
 	// Only render relevant materials
 	if (DrawingContext.ShouldDraw(Material, SceneContext.IsSeparateTranslucencyPass()))
-		{
+	{
 			FDrawingPolicyRenderState DrawRenderStateLocal(DrawRenderState);
 
 			const bool bDisableDepthTest = Material->ShouldDisableDepthTest();
@@ -586,6 +771,67 @@ bool FTranslucencyDrawingPolicyFactory::DrawMesh(
 	return bDirty;
 }
 
+// WaveWorks Start
+bool FTranslucencyDrawingPolicyFactory::DrawWaveWorksMesh(
+	FRHICommandList& RHICmdList,
+	const FViewInfo& View,
+	ContextType DrawingContext,
+	const FMeshBatch& Mesh,
+	const uint64& BatchElementMask,
+	const FDrawingPolicyRenderState& DrawRenderState,
+	bool bPreFog,
+	const FPrimitiveSceneProxy* PrimitiveSceneProxy,
+	FHitProxyId HitProxyId
+	)
+{
+	bool bDirty = false;
+	const auto FeatureLevel = View.GetFeatureLevel();
+
+	// Determine the mesh's material and blend mode.
+	const FMaterial* Material = Mesh.MaterialRenderProxy->GetMaterial(FeatureLevel);
+	const EBlendMode BlendMode = Material->GetBlendMode();
+
+	// Only render translucent materials
+	if (IsTranslucentBlendMode(BlendMode))
+	{
+		// if we are in relevant pass
+		{
+			FDrawingPolicyRenderState DrawRenderStateLocal(DrawRenderState);
+			DrawRenderStateLocal.SetDepthStencilState(TStaticDepthStencilState<true, CF_DepthNearOrEqual>::GetRHI());
+
+			// Restore waveworks state
+			SetWaveWorksRenderTargetAndState(RHICmdList, View);
+
+			ProcessBasePassMesh(
+				RHICmdList,
+				FProcessBasePassMeshParameters(
+					Mesh,
+					BatchElementMask,
+					Material,
+					PrimitiveSceneProxy,
+					!bPreFog,
+					false,
+					ESceneRenderTargetsMode::SetTextures,
+					FeatureLevel
+					),
+				FDrawTranslucentMeshAction(
+					RHICmdList,
+					View,
+					DrawRenderStateLocal,
+					HitProxyId,
+					nullptr,
+					false,
+					false
+				)
+				);
+
+			bDirty = true;
+		}
+	}
+	return bDirty;
+}
+// WaveWorks End
+
 
 /**
  * Render a dynamic mesh using a translucent draw policy
@@ -617,6 +863,35 @@ bool FTranslucencyDrawingPolicyFactory::DrawDynamicMesh(
 		HitProxyId
 		);
 }
+
+// WaveWorks Start
+bool FTranslucencyDrawingPolicyFactory::DrawDynamicWaveWorksMesh(
+	FRHICommandList& RHICmdList,
+	const FViewInfo& View,
+	ContextType DrawingContext,
+	const FMeshBatch& Mesh,
+	bool bPreFog,
+	const FDrawingPolicyRenderState& DrawRenderState,
+	const FPrimitiveSceneProxy* PrimitiveSceneProxy,
+	FHitProxyId HitProxyId
+	)
+{
+	FDrawingPolicyRenderState DrawRenderStateLocal(DrawRenderState);
+	DrawRenderStateLocal.SetDitheredLODTransitionAlpha(Mesh.DitheredLODTransitionAlpha);
+
+	return DrawWaveWorksMesh(
+		RHICmdList,
+		View,
+		DrawingContext,
+		Mesh,
+		Mesh.Elements.Num() == 1 ? 1 : (1 << Mesh.Elements.Num()) - 1,	// 1 bit set for each mesh element
+		DrawRenderStateLocal,
+		bPreFog,
+		PrimitiveSceneProxy,
+		HitProxyId
+		);
+}
+// WaveWorks End
 
 /**
  * Render a static mesh using a translucent draw policy
@@ -740,12 +1015,76 @@ void FTranslucentPrimSet::DrawPrimitivesParallel(
 	for (int32 PrimIdx = FirstPrimIdx; PrimIdx <= LastPrimIdx; PrimIdx++)
 	{
 		FPrimitiveSceneInfo* PrimitiveSceneInfo = SortedPrims[PrimIdx].PrimitiveSceneInfo;
+
+		// WaveWorks Start
+		if (PrimitiveSceneInfo->Proxy->IsQuadTreeWaveWorks())
+		{
+			continue;
+		}
+		// WaveWorks End
+
 		int32 PrimitiveId = PrimitiveSceneInfo->GetIndex();
 		const FPrimitiveViewRelevance& ViewRelevance = View.PrimitiveViewRelevanceMap[PrimitiveId];
 
 		checkSlow(ViewRelevance.HasTranslucency());
 
-		if (PrimitiveSceneInfo->Proxy && PrimitiveSceneInfo->Proxy->CastsVolumetricTranslucentShadow())
+		// NvFlow begin
+		if (GRendererNvFlowHooks)
+		{
+			if (GRendererNvFlowHooks->NvFlowDoRenderPrimitive(RHICmdList, View, PrimitiveSceneInfo))
+			{
+				continue;
+			}
+		}
+		// NvFlow end
+
+		// NVCHANGE_BEGIN: Add VXGI
+		bool bDefer = false;		if (PrimitiveSceneInfo->Proxy && PrimitiveSceneInfo->Proxy->CastsVolumetricTranslucentShadow())
+		{
+			bDefer = true;
+		}
+
+#if WITH_GFSDK_VXGI
+		// Look for meshes in this primitive that have VXGI cone tracing enabled.
+		// These meshes should be processed in the main rendering thread because VXGI rendering backend 
+		// doesn't understand threaded rendering.
+		if (!bDefer && View.Family->bVxgiAvailable && CVarVxgiCustomTracingEnable.GetValueOnRenderThread())
+		{
+			auto FeatureLevel = View.GetFeatureLevel();
+
+			FInt32Range range = View.GetDynamicMeshElementRange(PrimitiveSceneInfo->GetIndex());
+
+			for (int32 MeshBatchIndex = range.GetLowerBoundValue(); MeshBatchIndex < range.GetUpperBoundValue(); MeshBatchIndex++)
+			{
+				const FMeshBatchAndRelevance& MeshBatchAndRelevance = View.DynamicMeshElements[MeshBatchIndex];
+				const auto Material = MeshBatchAndRelevance.Mesh->MaterialRenderProxy->GetMaterial(FeatureLevel);
+
+				if (Material->GetVxgiMaterialProperties().bVxgiConeTracingEnabled)
+				{
+					bDefer = true;
+					break;
+				}
+			}
+
+			if (!bDefer && ViewRelevance.bStaticRelevance)
+			{
+				for (int32 StaticMeshIdx = 0, Count = PrimitiveSceneInfo->StaticMeshes.Num(); StaticMeshIdx < Count; StaticMeshIdx++)
+				{
+					FStaticMesh& StaticMesh = PrimitiveSceneInfo->StaticMeshes[StaticMeshIdx];
+					const FMaterial* Material = StaticMesh.MaterialRenderProxy->GetMaterial(FeatureLevel);
+
+					if (View.StaticMeshVisibilityMap[StaticMesh.Id] && Material->GetVxgiMaterialProperties().bVxgiConeTracingEnabled)
+					{
+						bDefer = true;
+						break;
+					}
+				}
+			}
+		}
+#endif
+
+		if (bDefer)
+		// NVCHANGE_END: Add VXGI
 		{
 			check(!IsInActualRenderingThread());
 			// can't do this in parallel, defer
@@ -775,18 +1114,61 @@ void FTranslucentPrimSet::DrawPrimitives(
 	for( int32 PrimIdx = PassRange.GetLowerBoundValue(); PrimIdx < PassRange.GetUpperBoundValue(); PrimIdx++ )
 	{
 		FPrimitiveSceneInfo* PrimitiveSceneInfo = SortedPrims[PrimIdx].PrimitiveSceneInfo;
+		// WaveWorks Start
+		if (!PrimitiveSceneInfo->Proxy->IsQuadTreeWaveWorks())
+		{
+		// WaveWorks End
 		int32 PrimitiveId = PrimitiveSceneInfo->GetIndex();
 		const FPrimitiveViewRelevance& ViewRelevance = View.PrimitiveViewRelevanceMap[PrimitiveId];
 
 		checkSlow(ViewRelevance.HasTranslucency());
-			
+		
+		
+		// NvFlow begin
+		if (GRendererNvFlowHooks)
+		{
+			if (GRendererNvFlowHooks->NvFlowDoRenderPrimitive(RHICmdList, View, PrimitiveSceneInfo))
+			{
+				continue;
+			}
+		}
+		// NvFlow end
+		
 		const FProjectedShadowInfo* TranslucentSelfShadow = Renderer.PrepareTranslucentShadowMap(RHICmdList, View, PrimitiveSceneInfo, TranslucencyPass);
 
 		RenderPrimitive(RHICmdList, View, DrawRenderState, PrimitiveSceneInfo, ViewRelevance, TranslucentSelfShadow, TranslucencyPass);
+		// WaveWorks Start
+		}
+		// WaveWorks End
 	}
 
 	View.SimpleElementCollector.DrawBatchedElements(RHICmdList, DrawRenderState, View, FTexture2DRHIRef(), EBlendModeFilter::Translucent);
 }
+
+// WaveWorks Start
+void FTranslucentPrimSet::DrawWaveWorksPrimitives(
+	FRHICommandListImmediate& RHICmdList, 
+	const FViewInfo& View, 
+	const FDrawingPolicyRenderState& DrawRenderState,
+	FDeferredShadingSceneRenderer& Renderer
+	) const
+{
+	// Draw sorted scene prims
+	for (int32 PrimIdx = 0; PrimIdx < SortedPrims.Num(); PrimIdx++)
+	{
+		FPrimitiveSceneInfo* PrimitiveSceneInfo = SortedPrims[PrimIdx].PrimitiveSceneInfo;
+		if (PrimitiveSceneInfo->Proxy->IsQuadTreeWaveWorks())
+		{
+			int32 PrimitiveId = PrimitiveSceneInfo->GetIndex();
+			const FPrimitiveViewRelevance& ViewRelevance = View.PrimitiveViewRelevanceMap[PrimitiveId];
+
+			checkSlow(ViewRelevance.HasTranslucency());
+
+			RenderWaveWorksPrimitive(RHICmdList, View, DrawRenderState, PrimitiveSceneInfo, ViewRelevance);
+		}
+	}
+}
+// WaveWorks End
 
 void FTranslucentPrimSet::RenderPrimitive(
 	FRHICommandList& RHICmdList,
@@ -830,23 +1212,56 @@ void FTranslucentPrimSet::RenderPrimitive(
 
 				// Only render visible elements with relevant materials
 				if (View.StaticMeshVisibilityMap[StaticMesh.Id] && Context.ShouldDraw(StaticMesh.MaterialRenderProxy->GetMaterial(FeatureLevel), FSceneRenderTargets::Get(RHICmdList).IsSeparateTranslucencyPass()))
-					{
-						FTranslucencyDrawingPolicyFactory::DrawStaticMesh(
-							RHICmdList,
-							View,
-						Context,
-							StaticMesh,
-						StaticMesh.bRequiresPerElementVisibility ? View.StaticMeshBatchVisibility[StaticMesh.BatchVisibilityId] : ((1ull << StaticMesh.Elements.Num()) - 1),
-							false,
-							DrawRenderState,
-							PrimitiveSceneInfo->Proxy,
-							StaticMesh.BatchHitProxyId
-							);
-					}
-				}
+				{
+					FTranslucencyDrawingPolicyFactory::DrawStaticMesh(
+						RHICmdList,
+						View,
+					Context,
+						StaticMesh,
+					StaticMesh.bRequiresPerElementVisibility ? View.StaticMeshBatchVisibility[StaticMesh.BatchVisibilityId] : ((1ull << StaticMesh.Elements.Num()) - 1),
+						false,
+						DrawRenderState,
+						PrimitiveSceneInfo->Proxy,
+						StaticMesh.BatchHitProxyId
+						);				}
 			}
 		}
 	}
+}
+
+// WaveWorks Start
+void FTranslucentPrimSet::RenderWaveWorksPrimitive(
+	FRHICommandList& RHICmdList,
+	const FViewInfo& View,
+	const FDrawingPolicyRenderState& DrawRenderState,
+	FPrimitiveSceneInfo* PrimitiveSceneInfo,
+	const FPrimitiveViewRelevance& ViewRelevance) const
+{
+	checkSlow(ViewRelevance.HasTranslucency());
+	auto FeatureLevel = View.GetFeatureLevel();
+
+	if (ViewRelevance.bDrawRelevance)
+	{
+		FTranslucencyDrawingPolicyFactory::ContextType Context(nullptr, ETranslucencyPass::TPT_AllTranslucency);
+
+		// Render dynamic scene prim
+		{
+			// range in View.DynamicMeshElements[]
+			FInt32Range range = View.GetDynamicMeshElementRange(PrimitiveSceneInfo->GetIndex());
+
+			for (int32 MeshBatchIndex = range.GetLowerBoundValue(); MeshBatchIndex < range.GetUpperBoundValue(); MeshBatchIndex++)
+			{
+				const FMeshBatchAndRelevance& MeshBatchAndRelevance = View.DynamicMeshElements[MeshBatchIndex];
+
+				checkSlow(MeshBatchAndRelevance.PrimitiveSceneProxy == PrimitiveSceneInfo->Proxy);
+
+				const FMeshBatch& MeshBatch = *MeshBatchAndRelevance.Mesh;
+				FTranslucencyDrawingPolicyFactory::DrawDynamicWaveWorksMesh(RHICmdList, View, Context, MeshBatch, false, DrawRenderState, MeshBatchAndRelevance.PrimitiveSceneProxy, MeshBatch.BatchHitProxyId);
+			}
+		}
+	}
+}
+// WaveWorks End
 
 inline float CalculateTranslucentSortKey(FPrimitiveSceneInfo* PrimitiveSceneInfo, const FViewInfo& ViewInfo)
 {
@@ -941,7 +1356,7 @@ bool FSceneRenderer::ShouldRenderTranslucency(ETranslucencyPass::Type Translucen
 	}
 
 	for (const FViewInfo& View : Views)
-		{
+	{
 		if (View.TranslucentPrimSet.SortedPrimsNum.Num(TranslucencyPass) > 0)
 		{
 			return true;
@@ -1060,21 +1475,21 @@ static FTranslucencyDrawingPolicyFactory::ContextType GParallelTranslucencyConte
 
 
 void FDeferredShadingSceneRenderer::RenderViewTranslucency(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, ETranslucencyPass::Type TranslucencyPass)
-	{
+{
 	// Draw translucent prims
 	View.TranslucentPrimSet.DrawPrimitives(RHICmdList, View, DrawRenderState, *this, TranslucencyPass);
 
 	if (IsMainTranslucencyPass(TranslucencyPass))
-		{
+	{
 		View.SimpleElementCollector.DrawBatchedElements(RHICmdList, DrawRenderState, View, FTexture2DRHIRef(), EBlendModeFilter::Translucent);
 
 		// editor and debug rendering
 		if (View.bHasTranslucentViewMeshElements)
-			{
+		{
 			FTranslucencyDrawingPolicyFactory::ContextType Context(0, TranslucencyPass);
 			DrawViewElements<FTranslucencyDrawingPolicyFactory>(RHICmdList, View, DrawRenderState, Context, SDPG_World, false);
 			DrawViewElements<FTranslucencyDrawingPolicyFactory>(RHICmdList, View, DrawRenderState, Context, SDPG_Foreground, false);
-			}
+		}
 			
 		const FSceneViewState* ViewState = (const FSceneViewState*)View.State;
 		if (ViewState && View.Family->EngineShowFlags.VisualizeLPV)
@@ -1088,6 +1503,7 @@ void FDeferredShadingSceneRenderer::RenderViewTranslucency(FRHICommandListImmedi
 		}
 	}
 }
+
 void FDeferredShadingSceneRenderer::RenderViewTranslucencyParallel(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, ETranslucencyPass::Type TranslucencyPass)
 {
 	FTranslucencyPassParallelCommandListSet ParallelCommandListSet(
@@ -1193,26 +1609,34 @@ void FDeferredShadingSceneRenderer::SetupDownsampledTranslucencyViewUniformBuffe
 void FDeferredShadingSceneRenderer::ConditionalResolveSceneColorForTranslucentMaterials(FRHICommandListImmediate& RHICmdList)
 {
 	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
-		{
+	{
 		FViewInfo& View = Views[ViewIndex];
 
 		bool bNeedsResolve = false;
 		for (int32 TranslucencyPass = 0; TranslucencyPass < ETranslucencyPass::TPT_MAX && !bNeedsResolve; ++TranslucencyPass)
-			{
+		{
 			bNeedsResolve |= View.TranslucentPrimSet.SortedPrimsNum.UseSceneColorCopy((ETranslucencyPass::Type)TranslucencyPass);
 		}
 
 		if (bNeedsResolve)
-				{
+		{
 			FTranslucencyDrawingPolicyFactory::CopySceneColor(RHICmdList, View);
 		}
 	}
-				}
+}
+
+// WaveWorks Start
+void FDeferredShadingSceneRenderer::DrawAllWaveWorksPasses(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState)
+{
+	// Draw translucent waveworks prims
+	View.TranslucentPrimSet.DrawWaveWorksPrimitives(RHICmdList, View, DrawRenderState, *this);
+}
+// WaveWorks End
 				
 void FDeferredShadingSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdList, ETranslucencyPass::Type TranslucencyPass)
 {
 	if (!ShouldRenderTranslucency(TranslucencyPass))
-				{
+	{
 		return; // Early exit if nothing needs to be done.
 	}
 
@@ -1224,13 +1648,13 @@ void FDeferredShadingSceneRenderer::RenderTranslucency(FRHICommandListImmediate&
 	// Support for parallel rendering.
 	const bool bUseParallel = GRHICommandList.UseParallelAlgorithms() && CVarParallelTranslucency.GetValueOnRenderThread();
 	if (bUseParallel)
-					{
+	{
 		SceneContext.AllocLightAttenuation(RHICmdList); // materials will attempt to get this texture before the deferred command to set it up executes
 	}
 	FScopedCommandListWaitForTasks Flusher(bUseParallel && (CVarRHICmdFlushRenderThreadTasksTranslucentPass.GetValueOnRenderThread() > 0 || CVarRHICmdFlushRenderThreadTasks.GetValueOnRenderThread() > 0), RHICmdList);
 
 	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
-						{
+	{
 		SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
 
 		FViewInfo& View = Views[ViewIndex];
@@ -1242,7 +1666,7 @@ void FDeferredShadingSceneRenderer::RenderTranslucency(FRHICommandListImmediate&
 
 #if STATS
 		if (View.ViewState && IsMainTranslucencyPass(TranslucencyPass))
-							{
+		{
 			View.ViewState->TranslucencyTimer.Begin(RHICmdList);
 		}
 #endif
@@ -1293,20 +1717,20 @@ void FDeferredShadingSceneRenderer::RenderTranslucency(FRHICommandListImmediate&
 			DrawRenderState.SetDepthStencilState(TStaticDepthStencilState<false, CF_DepthNearOrEqual>::GetRHI());
 	
 			if (bUseParallel)
-	{
+			{
 				RenderViewTranslucencyParallel(RHICmdList, View, DrawRenderState, TranslucencyPass);
-	}
+			}
 			else
 			{
 				RenderViewTranslucency(RHICmdList, View, DrawRenderState, TranslucencyPass);
-}
+			}
 
 			// SceneContext.FinishRenderingTranslucency(RHICmdList, View);
 		}
 
 #if STATS
 		if (View.ViewState && IsMainTranslucencyPass(TranslucencyPass))
-{
+		{
 			STAT(View.ViewState->TranslucencyTimer.End(RHICmdList));
 		}
 #endif
@@ -1324,9 +1748,9 @@ protected:
 
 	/** Default constructor. */
 	FTranslucencyUpsamplingPS(bool InbUseNearestDepthNeighborUpsample)
-		: bUseNearestDepthNeighborUpsample(InbUseNearestDepthNeighborUpsample)
-		{
-		}
+	: bUseNearestDepthNeighborUpsample(InbUseNearestDepthNeighborUpsample)
+	{
+	}
 
 	FShaderParameter LowResColorTexelSize;
 	FShaderResourceParameter SceneDepthTexture;
@@ -1341,28 +1765,23 @@ public:
 	FTranslucencyUpsamplingPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer, bool InbUseNearestDepthNeighborUpsample)
 		: FGlobalShader(Initializer)
 		, bUseNearestDepthNeighborUpsample(InbUseNearestDepthNeighborUpsample)
-			{
+	{
 		LowResColorTexelSize.Bind(Initializer.ParameterMap, TEXT("LowResColorTexelSize"));
 		SceneDepthTexture.Bind(Initializer.ParameterMap, TEXT("SceneDepthTexture"));
 		LowResDepthTexture.Bind(Initializer.ParameterMap, TEXT("LowResDepthTexture"));
 		LowResColorTexture.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture"));
 		BilinearClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearClampedSampler"));
 		PointClampedSampler.Bind(Initializer.ParameterMap, TEXT("PointClampedSampler"));
-				}
-
-
-
+	}
 
 	// FShader interface.
 	virtual bool Serialize(FArchive& Ar) override
-					{
+	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
 		Ar << LowResColorTexelSize << SceneDepthTexture << LowResDepthTexture << LowResColorTexture << BilinearClampedSampler << PointClampedSampler;
 		return bShaderHasOutdatedParameters;
-			}
-			
-	void SetParameters(FRHICommandList& RHICmdList, const FViewInfo& View)
-			{
+	}	void SetParameters(FRHICommandList& RHICmdList, const FViewInfo& View)
+	{
 		const FPixelShaderRHIParamRef ShaderRHI = GetPixelShader();
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, View.ViewUniformBuffer);
 
@@ -1377,9 +1796,9 @@ public:
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResDepthTexture, SceneContext.GetDownsampledTranslucencyDepthSurface());
 		SetTextureParameter(RHICmdList, ShaderRHI, SceneDepthTexture, SceneContext.GetSceneDepthSurface());
 
-		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearClampedSampler, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
-		SetSamplerParameter(RHICmdList, ShaderRHI, PointClampedSampler, TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
-					}
+		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearClampedSampler, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
+		SetSamplerParameter(RHICmdList, ShaderRHI, PointClampedSampler, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
+	}
 
 	const bool bUseNearestDepthNeighborUpsample;
 };
@@ -1407,13 +1826,13 @@ public:
 IMPLEMENT_SHADER_TYPE(,FTranslucencyNearestDepthNeighborUpsamplingPS,TEXT("/Engine/Private/TranslucencyUpsampling.usf"),TEXT("NearestDepthNeighborUpsamplingPS"),SF_Pixel);
 
 bool UseNearestDepthNeighborUpsampleForSeparateTranslucency(const FSceneRenderTargets& SceneContext)
-					{
+{
 	FIntPoint OutScaledSize;
 	float OutScale;
 	SceneContext.GetSeparateTranslucencyDimensions(OutScaledSize, OutScale);
 
 	return 	CVarSeparateTranslucencyUpsampleMode.GetValueOnRenderThread() != 0 && FMath::Abs(OutScale - .5f) < .001f;
-					}
+}
 
 void FTranslucencyDrawingPolicyFactory::UpsampleTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View, bool bOverwrite)
 {
@@ -1431,12 +1850,10 @@ void FTranslucencyDrawingPolicyFactory::UpsampleTranslucency(FRHICommandList& RH
 	if (bOverwrite) // When overwriting, we also need to set the alpha as other translucent primitive could accumulate into the buffer.
 	{
 		GraphicsPSOInit.BlendState = TStaticBlendState<>::GetRHI();
-			}
-	else
+	}	else
 	{
 		GraphicsPSOInit.BlendState = TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_SourceAlpha>::GetRHI();
-		}
-
+	}
 	TShaderMapRef<FScreenVS> ScreenVertexShader(View.ShaderMap);
 	FTranslucencyUpsamplingPS* UpsamplingPixelShader = nullptr;
 	if (UseNearestDepthNeighborUpsampleForSeparateTranslucency(SceneContext))
@@ -1477,3 +1894,29 @@ void FTranslucencyDrawingPolicyFactory::UpsampleTranslucency(FRHICommandList& RH
 		*ScreenVertexShader,
 		EDRF_UseTriangleOptimization);
 }
+
+// WaveWorks Start
+void FDeferredShadingSceneRenderer::RenderWaveWorks(FRHICommandListImmediate& RHICmdList)
+{
+	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+	{
+		SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
+			
+		const FViewInfo& View = Views[ViewIndex];
+		FDrawingPolicyRenderState DrawRenderState(View);
+		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+		{
+			TRefCountPtr<IPooledRenderTarget>* WaveWorksDepthRT = &SceneContext.GetWaveWorksDepthRT(RHICmdList, SceneContext.GetBufferSizeXY());
+			DownsampleDepthSurface(RHICmdList, (const FTexture2DRHIRef&)(*WaveWorksDepthRT)->GetRenderTargetItem().TargetableTexture, View, 1.0, false);
+
+			bool bFirstTimeThisFrame = (ViewIndex == 0);
+			SceneContext.BeginRenderingWaveWorks(RHICmdList, View, bFirstTimeThisFrame);
+
+			DrawRenderState.SetDepthStencilState(TStaticDepthStencilState<true, CF_DepthNearOrEqual>::GetRHI());
+			DrawAllWaveWorksPasses(RHICmdList, View, DrawRenderState);
+
+			SceneContext.FinishRenderingWaveWorks(RHICmdList, View);
+		}
+	}
+}
+// WaveWorks End

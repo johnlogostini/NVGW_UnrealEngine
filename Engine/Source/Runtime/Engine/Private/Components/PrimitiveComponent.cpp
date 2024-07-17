@@ -206,6 +206,14 @@ UPrimitiveComponent::UPrimitiveComponent(const FObjectInitializer& ObjectInitial
 #if WITH_EDITORONLY_DATA
 	bEnableAutoLODGeneration = true;
 #endif // WITH_EDITORONLY_DATA
+
+#if WITH_FLEX
+	FlexParticleCount = 0;
+
+	bIsFlexParent = 0;
+	bFlexParticleDrain = 0;
+	bFlexEnableParticleCounter = 0;
+#endif
 }
 
 bool UPrimitiveComponent::UsesOnlyUnlitMaterials() const

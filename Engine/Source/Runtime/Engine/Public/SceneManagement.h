@@ -854,6 +854,12 @@ public:
 	float MinOcclusion;
 	FLinearColor OcclusionTint;
 	EOcclusionCombineMode OcclusionCombineMode;
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	bool bCastVxgiIndirectLighting;
+#endif
+	// NVCHANGE_END: Add VXGI
 };
 
 struct FLightParameters
@@ -1050,6 +1056,11 @@ public:
 	inline bool AffectsTranslucentLighting() const { return bAffectTranslucentLighting; }
 	inline bool UseRayTracedDistanceFieldShadows() const { return bUseRayTracedDistanceFieldShadows; }
 	inline float GetRayStartOffsetDepthScale() const { return RayStartOffsetDepthScale; }
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	inline bool CastVxgiIndirectLighting() const { return bCastVxgiIndirectLighting; }
+#endif
+	// NVCHANGE_END: Add VXGI
 	inline uint8 GetLightType() const { return LightType; }
 	inline uint8 GetLightingChannelMask() const { return LightingChannelMask; }
 	inline FName GetComponentName() const { return ComponentName; }
@@ -1075,6 +1086,26 @@ public:
 
 	virtual float GetMaxDrawDistance() const { return 0.0f; }
 	virtual float GetFadeRange() const { return 0.0f; }
+
+	// NvFlow begin
+	inline int32 GetFlowGridShadowEnabled() const { return bFlowGridShadowEnabled; }
+	inline int32 GetFlowGridShadowChannel() const { return FlowGridShadowChannel; }
+	// NvFlow end
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	inline bool IsNVVolumetricLighting() const { return bEnableNVVL; }
+	inline int32 GetNvVlTessQuality() const { return TessQuality; }
+	inline float GetNvVlTargetRayResolution() const { return TargetRayResolution; }
+	inline float GetNvVlDepthBias() const { return DepthBias; }
+	inline int32 GetNvVlAttenuationMode() const { return AttenuationMode; }
+	inline FVector4 GetNvVlAttenuationFactors() const { return AttenuationFactors; }
+	inline int32 GetNvVlFalloffMode() const { return FalloffMode; }
+	inline FVector2D GetNvVlFalloffAngleAndPower() const { return FalloffAngleAndPower; }
+	inline const FLinearColor& GetNvVlIntensity() const { return Intensity; }
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
 
 protected:
 
@@ -1197,6 +1228,12 @@ protected:
 
 	float RayStartOffsetDepthScale;
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	const uint32 bCastVxgiIndirectLighting : 1;
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	/** The light type (ELightComponentType) */
 	const uint8 LightType;
 
@@ -1220,6 +1257,11 @@ protected:
 	/** Modulated shadow color. */
 	FLinearColor ModulatedShadowColor;
 
+	// NvFlow begin
+	bool bFlowGridShadowEnabled;
+	int32 FlowGridShadowChannel;
+	// NvFlow end
+
 	/**
 	 * Updates the light proxy's cached transforms.
 	 * @param InLightToWorld - The new light-to-world transform.
@@ -1229,6 +1271,23 @@ protected:
 
 	/** Updates the light's color. */
 	void SetColor(const FLinearColor& InColor);
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	bool bEnableNVVL;
+	int32 TessQuality;
+	float TargetRayResolution;
+	float DepthBias;
+
+	int32 AttenuationMode;
+	FVector4 AttenuationFactors;
+
+	int32 FalloffMode;
+	FVector2D FalloffAngleAndPower;
+	FLinearColor Intensity;
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
 };
 
 

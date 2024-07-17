@@ -570,7 +570,7 @@ EVisibility FMaterialInstanceParameterDetails::ShouldShowSubsurfaceProfile() con
 void FMaterialInstanceParameterDetails::CreateBasePropertyOverrideWidgets(IDetailLayoutBuilder& DetailLayout)
 {
 	IDetailCategoryBuilder& DetailCategory = DetailLayout.EditCategory(NAME_None);
-	
+
 	static FName GroupName(TEXT("BasePropertyOverrideGroup"));
 	IDetailGroup& BasePropertyOverrideGroup = DetailCategory.AddGroup(GroupName, LOCTEXT("BasePropertyOverrideGroup", "Material Property Overrides"), false, false);
 
@@ -616,6 +616,27 @@ void FMaterialInstanceParameterDetails::CreateBasePropertyOverrideWidgets(IDetai
 		.DisplayName(DitheredLODTransitionProperty->GetPropertyDisplayName())
 		.ToolTip(DitheredLODTransitionProperty->GetToolTipText())
 		.EditCondition(IsOverrideDitheredLODTransitionEnabled, FOnBooleanValueChanged::CreateSP(this, &FMaterialInstanceParameterDetails::OnOverrideDitheredLODTransitionChanged));
+
+	// NVCHANGE_BEGIN: Add VXGI
+#define VXGI_OVERRIDE_ATTR(NAME, OVERRIDEPROP) { \
+	TAttribute<bool> Attribute = TAttribute<bool>::Create(TAttribute<bool>::FGetter::CreateSP(this, &FMaterialInstanceParameterDetails::NAME)); \
+	TSharedPtr<IPropertyHandle> Property = BasePropertyOverridePropery->GetChildHandle(OVERRIDEPROP); \
+	BasePropertyOverrideGroup.AddPropertyRow(Property.ToSharedRef()).DisplayName(Property->GetPropertyDisplayName()).ToolTip(Property->GetToolTipText()) \
+		.EditCondition(Attribute, FOnBooleanValueChanged::CreateSP(this, &FMaterialInstanceParameterDetails::On##NAME)); \
+	}
+
+	VXGI_OVERRIDE_ATTR(OverrideIsVxgiConeTracingEnabled, "bVxgiConeTracingEnabled");
+	VXGI_OVERRIDE_ATTR(OverrideIsUsedWithVxgiVoxelizationEnabled, "bUsedWithVxgiVoxelization");
+	VXGI_OVERRIDE_ATTR(OverrideIsVxgiOmniDirectionalEnabled, "bVxgiOmniDirectional");
+	VXGI_OVERRIDE_ATTR(OverrideIsVxgiProportionalEmittanceEnabled, "bVxgiProportionalEmittance");
+	VXGI_OVERRIDE_ATTR(OverrideGetVxgiAllowTesselationDuringVoxelizationEnabled, "bVxgiAllowTesselationDuringVoxelization");
+	VXGI_OVERRIDE_ATTR(OverrideGetVxgiVoxelizationThicknessEnabled, "VxgiVoxelizationThickness");
+	VXGI_OVERRIDE_ATTR(OverrideGetVxgiOpacityNoiseScaleBiasEnabled, "VxgiOpacityNoiseScaleBias");
+	VXGI_OVERRIDE_ATTR(OverrideGetVxgiCoverageSupersamplingEnabled, "bVxgiCoverageSupersampling");
+	VXGI_OVERRIDE_ATTR(OverrideGetVxgiMaterialSamplingRateEnabled, "VxgiMaterialSamplingRate");
+
+#undef VXGI_OVERRIDE_ATTR
+	// NVCHANGE_END: Add VXGI
 }
 
 bool FMaterialInstanceParameterDetails::OverrideOpacityClipMaskValueEnabled() const
@@ -677,5 +698,63 @@ void FMaterialInstanceParameterDetails::OnOverrideDitheredLODTransitionChanged(b
 	MaterialEditorInstance->PostEditChange();
 	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
 }
+
+// NVCHANGE_BEGIN: Add VXGI
+void FMaterialInstanceParameterDetails::OnOverrideIsVxgiConeTracingEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiConeTracingEnabled = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideIsUsedWithVxgiVoxelizationEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_UsedWithVxgiVoxelization = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideIsVxgiOmniDirectionalEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiOmniDirectional = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideIsVxgiProportionalEmittanceEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiProportionalEmittance = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideGetVxgiAllowTesselationDuringVoxelizationEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiAllowTesselationDuringVoxelization = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideGetVxgiVoxelizationThicknessEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiVoxelizationThickness = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideGetVxgiOpacityNoiseScaleBiasEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiOpacityNoiseScaleBias = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideGetVxgiCoverageSupersamplingEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiCoverageSupersampling = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+void FMaterialInstanceParameterDetails::OnOverrideGetVxgiMaterialSamplingRateEnabled(bool NewValue)
+{
+	MaterialEditorInstance->BasePropertyOverrides.bOverride_VxgiMaterialSamplingRate = NewValue;
+	MaterialEditorInstance->PostEditChange();
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+}
+// NVCHANGE_END: Add VXGI
+
 #undef LOCTEXT_NAMESPACE
 

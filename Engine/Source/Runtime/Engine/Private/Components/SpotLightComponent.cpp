@@ -197,6 +197,13 @@ USpotLightComponent::USpotLightComponent(const FObjectInitializer& ObjectInitial
 
 	InnerConeAngle = 0.0f;
 	OuterConeAngle = 44.0f;
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+	FalloffMode = EFalloffMode::NONE;
+	FalloffAngle = 45.0f;
+	FalloffPower = 1.0f;
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
 }
 
 void USpotLightComponent::SetInnerConeAngle(float NewInnerConeAngle)
@@ -303,5 +310,24 @@ void USpotLightComponent::PostEditChangeProperty( FPropertyChangedEvent& Propert
 
 	UPointLightComponent::PostEditChangeProperty(PropertyChangedEvent);
 }
+
+// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+bool USpotLightComponent::CanEditChange(const UProperty* InProperty) const
+{
+	if (InProperty)
+	{
+		FString PropertyName = InProperty->GetName();
+
+		if (PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USpotLightComponent, FalloffMode)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USpotLightComponent, FalloffAngle)
+			|| PropertyName == GET_MEMBER_NAME_STRING_CHECKED(USpotLightComponent, FalloffPower))
+		{
+			return bEnableVolumetricLighting;
+		}
+	}
+
+	return UPointLightComponent::CanEditChange(InProperty);
+}
+// NVCHANGE_END: Nvidia Volumetric Lighting
 
 #endif	// WITH_EDITOR

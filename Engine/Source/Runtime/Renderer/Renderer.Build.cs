@@ -32,10 +32,23 @@ public class Renderer : ModuleRules
 				"RHI", 
 				"ShaderCore",
 				"UtilityShaders",
+// WaveWorks Start
+				"WaveWorks",
+// WaveWorks End
 			}
             );
 
         PrivateIncludePathModuleNames.AddRange(new string[] { "HeadMountedDisplay" });
         DynamicallyLoadedModuleNames.AddRange(new string[] { "HeadMountedDisplay" });
-	}
-}
+	
+		// @third party code - BEGIN HairWorks
+		AddEngineThirdPartyPrivateStaticDependencies(Target, "HairWorks");
+		// @third party code - END HairWorks
+
+		// NVCHANGE_BEGIN: Add VXGI
+        if ((Target.Platform == UnrealTargetPlatform.Win64) || (Target.Platform == UnrealTargetPlatform.Win32))
+        {
+            PublicDependencyModuleNames.Add("VXGI");
+        }
+        // NVCHANGE_END: Add VXGI
+    }}

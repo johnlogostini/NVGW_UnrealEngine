@@ -33,6 +33,7 @@ FSkeletalMeshObject::FSkeletalMeshObject(USkinnedMeshComponent* InMeshComponent,
 ,   MaterialIndexPreview(InMeshComponent->MaterialIndexPreview)
 #endif	
 ,	SkeletalMeshResource(InSkeletalMeshResource)
+,	SkeletalMeshDynamicOverride(nullptr) //#nv #Blast Ability to hide bones using a dynamic index buffer
 ,	SkeletalMeshLODInfo(InMeshComponent->SkeletalMesh->LODInfo)
 ,	SkinCacheEntry(nullptr)
 ,	LastFrameNumber(0)

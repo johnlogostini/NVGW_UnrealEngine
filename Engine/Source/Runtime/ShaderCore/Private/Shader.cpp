@@ -355,7 +355,7 @@ void FShaderType::Initialize(const TMap<FString, TArray<const TCHAR*> >& ShaderF
 		for (int32 Index = 1; Index < UniqueShaderTypes.Num(); ++Index)
 		{
 			checkf(UniqueShaderTypes[Index - 1] != UniqueShaderTypes[Index], TEXT("Duplicated FShader type name %s found, please rename one of them!"), UniqueShaderTypes[Index]->GetName());
-		}
+	}
 #endif
 	}
 
@@ -382,6 +382,14 @@ FShaderResource::FShaderResource()
 	, NumRefs(0)
 	, Canary(FShader::ShaderMagic_Uninitialized)
 	, bCodeInSharedLocation(false)
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	, VxgiVoxelizationGeometryShader(NULL)
+	, VxgiVoxelizationPixelShader(NULL)
+	, VxgiConeTracingPixelShader(NULL)
+	, bIsVxgiPS(0)
+#endif
+	// NVCHANGE_END: Add VXGI
 {
 	INC_DWORD_STAT_BY(STAT_Shaders_NumShaderResourcesLoaded, 1);
 }
@@ -395,11 +403,28 @@ FShaderResource::FShaderResource(const FShaderCompilerOutput& Output, FShaderTyp
 	, Canary(FShader::ShaderMagic_Initialized)
 	, bCodeInSharedLocation(false)
 	
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	, VxgiVoxelizationGeometryShader(NULL)
+	, VxgiVoxelizationPixelShader(NULL)
+	, VxgiConeTracingPixelShader(NULL)
+	, bIsVxgiPS(Output.bIsVxgiPS)
+#endif
+	// NVCHANGE_END: Add VXGI
 {
 	Target = Output.Target;
 	CompressCode(Output.ShaderCode.GetReadAccess());
 
 	check(Code.Num() > 0);
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	ParameterMapForVxgiPSPermutation = Output.ParameterMapForVxgiPSPermutation;
+	UsesGlobalCBForVxgiPSPermutation = Output.UsesGlobalCBForVxgiPSPermutation;
+	ShaderResouceTableVxgiPSPermutation = Output.ShaderResouceTableVxgiPSPermutation;
+	VxgiGSCode = Output.VxgiGSCode;
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	OutputHash = Output.OutputHash;
 	checkSlow(OutputHash != FSHAHash());
@@ -420,6 +445,14 @@ FShaderResource::~FShaderResource()
 	check(Canary == FShader::ShaderMagic_Uninitialized || Canary == FShader::ShaderMagic_CleaningUp || Canary == FShader::ShaderMagic_Initialized);
 	check(NumRefs == 0);
 	Canary = 0;
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	check(VxgiVoxelizationGeometryShader == NULL);
+	check(VxgiVoxelizationPixelShader == NULL);
+	check(VxgiConeTracingPixelShader == NULL);
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	DEC_DWORD_STAT_BY_FName(GetMemoryStatType((EShaderFrequency)Target.Frequency).GetName(), Code.Num());
 	DEC_DWORD_STAT_BY(STAT_Shaders_ShaderResourceMemory, GetSizeBytes());
@@ -472,12 +505,21 @@ void FShaderResource::Serialize(FArchive& Ar)
 
 	if (Ar.CustomVer(FRenderingObjectVersion::GUID) < FRenderingObjectVersion::ShaderResourceCodeSharing)
 	{
-		Ar << Code;
+	Ar << Code;
 	}
 	Ar << OutputHash;
 	Ar << NumInstructions;
 	Ar << NumTextureSamplers;
-	
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	Ar << bIsVxgiPS;
+	Ar << ParameterMapForVxgiPSPermutation;
+	Ar << ShaderResouceTableVxgiPSPermutation;
+	Ar << UsesGlobalCBForVxgiPSPermutation;
+	Ar << VxgiGSCode;
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	if (Ar.UE4Ver() >= VER_UE4_COMPRESSED_SHADER_RESOURCES)
 	{
 		Ar << UncompressedCodeSize;
@@ -666,26 +708,70 @@ void FShaderResource::InitRHI()
 	INC_DWORD_STAT_BY(STAT_Shaders_NumShadersUsedForRendering, 1);
 	SCOPE_CYCLE_COUNTER(STAT_Shaders_RTShaderLoadTime);
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	bool NeedRHIShader = true;
+	if (bIsVxgiPS)
+	{
+		//Our Code is a VXGI blob
+		auto VxgiInterface = GDynamicRHI->RHIVXGIGetInterface();
+		VXGI::IUserDefinedShaderSet* ShaderSet = NULL;
+		auto Status = VxgiInterface->loadUserDefinedShaderSet(&ShaderSet, UncompressedCode.GetData(), UncompressedCode.Num());
+		check(VXGI_SUCCEEDED(Status));
+
+		if (ShaderSet->getType() == VXGI::IUserDefinedShaderSet::CONE_TRACING_PIXEL_SHADER)
+			VxgiConeTracingPixelShader = ShaderSet;
+		else
+			VxgiVoxelizationPixelShader = ShaderSet;
+
+		NeedRHIShader = false;
+
+		const uint32 PermutationCount = ShaderSet->getPermutationCount();
+		for (uint32 Permutation = 0; Permutation < PermutationCount; Permutation++)
+		{
+			NVRHI::ShaderHandle PixelShaderPermutation = ShaderSet->getApplicationShaderHandle(Permutation);
+			FRHICommandListImmediate &RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
+			if (PixelShaderPermutation)
+			{
+				GDynamicRHI->RHIVXGISetPixelShaderResourceAttributes(PixelShaderPermutation, ShaderResouceTableVxgiPSPermutation[Permutation], UsesGlobalCBForVxgiPSPermutation[Permutation]);
+			}
+		}
+	}
+	else if (VxgiGSCode.Num() > 0)
+	{
+		//Our code is a normal shader but the VXGIGS also contains a GS
+		auto VxgiInterface = GDynamicRHI->RHIVXGIGetInterface();
+		auto Status = VxgiInterface->loadUserDefinedShaderSet(&VxgiVoxelizationGeometryShader, VxgiGSCode.GetData(), VxgiGSCode.Num());
+		check(VXGI_SUCCEEDED(Status));
+	}
+
+	if (NeedRHIShader)
+	{
+#endif
+		// NVCHANGE_END: Add VXGI
+
+	FShaderCache* ShaderCache = FShaderCache::GetShaderCache();
+
 	if(Target.Frequency == SF_Vertex)
 	{
 		VertexShader = FShaderCache::CreateVertexShader((EShaderPlatform)Target.Platform, OutputHash, UncompressedCode);
 		UE_CLOG((bCodeInSharedLocation && !IsValidRef(VertexShader)), LogShaders, Fatal, TEXT("FShaderResource::SerializeShaderCode can't find shader code for: [%s]"), *LegacyShaderPlatformToShaderFormat((EShaderPlatform)Target.Platform).ToString());
-	}
+		}
 	else if(Target.Frequency == SF_Pixel)
 	{
 		PixelShader = FShaderCache::CreatePixelShader((EShaderPlatform)Target.Platform, OutputHash, UncompressedCode);
 		UE_CLOG((bCodeInSharedLocation && !IsValidRef(PixelShader)), LogShaders, Fatal, TEXT("FShaderResource::SerializeShaderCode can't find shader code for: [%s]"), *LegacyShaderPlatformToShaderFormat((EShaderPlatform)Target.Platform).ToString());
-	}
+		}
 	else if(Target.Frequency == SF_Hull)
 	{
 		HullShader = FShaderCache::CreateHullShader((EShaderPlatform)Target.Platform, OutputHash, UncompressedCode);
 		UE_CLOG((bCodeInSharedLocation && !IsValidRef(HullShader)), LogShaders, Fatal, TEXT("FShaderResource::SerializeShaderCode can't find shader code for: [%s]"), *LegacyShaderPlatformToShaderFormat((EShaderPlatform)Target.Platform).ToString());
-	}
+		}
 	else if(Target.Frequency == SF_Domain)
 	{
 		DomainShader = FShaderCache::CreateDomainShader((EShaderPlatform)Target.Platform, OutputHash, UncompressedCode);
 		UE_CLOG((bCodeInSharedLocation && !IsValidRef(DomainShader)), LogShaders, Fatal, TEXT("FShaderResource::SerializeShaderCode can't find shader code for: [%s]"), *LegacyShaderPlatformToShaderFormat((EShaderPlatform)Target.Platform).ToString());
-	}
+		}
 	else if(Target.Frequency == SF_Geometry)
 	{
 		if (SpecificType)
@@ -702,19 +788,25 @@ void FShaderResource::InitRHI()
 		else
 		{
 			GeometryShader = FShaderCache::CreateGeometryShader((EShaderPlatform)Target.Platform, OutputHash, UncompressedCode);
-		}
+			}
 		UE_CLOG((bCodeInSharedLocation && !IsValidRef(GeometryShader)), LogShaders, Fatal, TEXT("FShaderResource::SerializeShaderCode can't find shader code for: [%s]"), *LegacyShaderPlatformToShaderFormat((EShaderPlatform)Target.Platform).ToString());
-	}
+			}
 	else if(Target.Frequency == SF_Compute)
 	{
 		ComputeShader = FShaderCache::CreateComputeShader((EShaderPlatform)Target.Platform, OutputHash, UncompressedCode);
 		UE_CLOG((bCodeInSharedLocation && !IsValidRef(ComputeShader)), LogShaders, Fatal, TEXT("FShaderResource::SerializeShaderCode can't find shader code for: [%s]"), *LegacyShaderPlatformToShaderFormat((EShaderPlatform)Target.Platform).ToString());
-	}
+		}
 
 	if (Target.Frequency != SF_Geometry)
 	{
 		checkf(!SpecificType, *FString::Printf(TEXT("Only geometry shaders can use GetStreamOutElements, shader type %s"), SpecificType->GetName()));
 	}
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	if (!FPlatformProperties::HasEditorOnlyData())
 	{
@@ -741,6 +833,30 @@ void FShaderResource::ReleaseRHI()
 	DomainShader.SafeRelease();
 	GeometryShader.SafeRelease();
 	ComputeShader.SafeRelease();
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	if (VxgiVoxelizationGeometryShader || VxgiVoxelizationPixelShader || VxgiConeTracingPixelShader)
+	{
+		VXGI::IGlobalIllumination* VxgiInterface = GDynamicRHI->RHIVXGIGetInterface();
+		if (VxgiInterface && VxgiVoxelizationGeometryShader)
+		{
+			VxgiInterface->destroyUserDefinedShaderSet(VxgiVoxelizationGeometryShader);
+		}
+		if (VxgiInterface && VxgiVoxelizationPixelShader)
+		{
+			VxgiInterface->destroyUserDefinedShaderSet(VxgiVoxelizationPixelShader);
+		}
+		if (VxgiInterface && VxgiConeTracingPixelShader)
+		{
+			VxgiInterface->destroyUserDefinedShaderSet(VxgiConeTracingPixelShader);
+		}
+		VxgiVoxelizationGeometryShader = NULL;
+		VxgiVoxelizationPixelShader = NULL;
+		VxgiConeTracingPixelShader = NULL;
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 }
 
 void FShaderResource::InitializeShaderRHI() 
@@ -769,6 +885,77 @@ FShaderResourceId FShaderResource::GetId() const
 	ShaderId.SpecificShaderTypeName = SpecificType ? SpecificType->GetName() : NULL;
 	return ShaderId;
 }
+
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+
+VXGI::IUserDefinedShaderSet* FShaderResource::GetVxgiVoxelizationGeometryShaderSet()
+{
+	checkSlow((Target.Frequency == SF_Vertex || Target.Frequency == SF_Domain) && VxgiGSCode.Num() > 0);
+
+	if (!IsInitialized())
+	{
+		STAT(double ShaderInitializationTime = 0);
+		{
+			SCOPE_CYCLE_COUNTER(STAT_Shaders_FrameRTShaderInitForRenderingTime);
+			SCOPE_SECONDS_COUNTER(ShaderInitializationTime);
+
+			InitResourceFromPossiblyParallelRendering();
+		}
+
+		INC_FLOAT_STAT_BY(STAT_Shaders_TotalRTShaderInitForRenderingTime, (float)ShaderInitializationTime);
+	}
+
+	checkSlow(IsInitialized());
+
+	return VxgiVoxelizationGeometryShader;
+}
+
+VXGI::IUserDefinedShaderSet* FShaderResource::GetVxgiVoxelizationPixelShaderSet()
+{
+	checkSlow(Target.Frequency == SF_Pixel && bIsVxgiPS);
+
+	if (!IsInitialized())
+	{
+		STAT(double ShaderInitializationTime = 0);
+		{
+			SCOPE_CYCLE_COUNTER(STAT_Shaders_FrameRTShaderInitForRenderingTime);
+			SCOPE_SECONDS_COUNTER(ShaderInitializationTime);
+
+			InitResourceFromPossiblyParallelRendering();
+		}
+
+		INC_FLOAT_STAT_BY(STAT_Shaders_TotalRTShaderInitForRenderingTime, (float)ShaderInitializationTime);
+	}
+
+	checkSlow(IsInitialized());
+
+	return VxgiVoxelizationPixelShader;
+}
+
+VXGI::IUserDefinedShaderSet* FShaderResource::GetVxgiConeTracingPixelShaderSet()
+{
+	checkSlow(Target.Frequency == SF_Pixel && bIsVxgiPS);
+
+	if (!IsInitialized())
+	{
+		STAT(double ShaderInitializationTime = 0);
+		{
+			SCOPE_CYCLE_COUNTER(STAT_Shaders_FrameRTShaderInitForRenderingTime);
+			SCOPE_SECONDS_COUNTER(ShaderInitializationTime);
+
+			InitResourceFromPossiblyParallelRendering();
+		}
+
+		INC_FLOAT_STAT_BY(STAT_Shaders_TotalRTShaderInitForRenderingTime, (float)ShaderInitializationTime);
+	}
+
+	checkSlow(IsInitialized());
+
+	return VxgiConeTracingPixelShader;
+}
+#endif 
+// NVCHANGE_END: Add VXGI
 
 FShaderId::FShaderId(const FSHAHash& InMaterialShaderMapHash, const FShaderPipelineType* InShaderPipeline, FVertexFactoryType* InVertexFactoryType, FShaderType* InShaderType, FShaderTarget InTarget)
 	: MaterialShaderMapHash(InMaterialShaderMapHash)
@@ -1088,6 +1275,16 @@ void FShader::RegisterSerializedResource()
 
 void FShader::SetResource(FShaderResource* InResource)
 {
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	if (!InResource)
+	{
+		Resource = NULL;
+		return;
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	check(InResource && InResource->Target == Target);
 	Resource = InResource;
 }

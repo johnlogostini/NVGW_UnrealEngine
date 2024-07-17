@@ -57,6 +57,12 @@ enum class EResourceTransitionPipeline;
 class FComputePipelineState;
 class FGraphicsPipelineState;
 
+// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+#include "NVVolumetricLightingRHI.h"
+#endif
+// NVCHANGE_END: Nvidia Volumetric Lighting
+
 DECLARE_STATS_GROUP(TEXT("RHICmdList"), STATGROUP_RHICMDLIST, STATCAT_Advanced);
 
 
@@ -623,6 +629,22 @@ struct FRHICommandSetShaderSampler : public FRHICommand<FRHICommandSetShaderSamp
 	}
 	RHI_API void Execute(FRHICommandListBase& CmdList);
 };
+
+// WaveWorks Start
+struct FRHICommandSetWaveWorksState : public FRHICommand < FRHICommandSetWaveWorksState >
+{
+	FWaveWorksRHIParamRef State;
+	FMatrix ViewMatrix;
+	TArray<uint32> ShaderInputMappings;
+	FORCEINLINE_DEBUGGABLE FRHICommandSetWaveWorksState(FWaveWorksRHIParamRef InState, const FMatrix& InViewMatrix, const TArray<uint32>& InShaderInputMappings)
+		: State(InState)
+		, ViewMatrix(InViewMatrix)
+		, ShaderInputMappings(InShaderInputMappings)
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+// WaveWorks End
 
 struct FRHICommandDrawPrimitive : public FRHICommand<FRHICommandDrawPrimitive>
 {
@@ -1338,6 +1360,62 @@ struct FRHICommandClearColorTextures : public FRHICommand<FRHICommandClearColorT
 	RHI_API void Execute(FRHICommandListBase& CmdList);
 };
 
+// WaveWorks Begin
+struct FQuadTreeWaveWorksArgsWorkArea
+{
+#if DO_CHECK // the below variables are used in check(), which can be enabled in Shipping builds (see Build.h)
+	FRHICommandListBase* CheckCmdList;
+	int32 UID;
+#endif
+
+	FWaveWorksRHIRef WaveWorks;
+	FMatrix ViewMatrix;
+	FMatrix ProjMatrix;
+	TArray<uint32> ShaderInputMappings;
+	struct GFSDK_WaveWorks_Quadtree* QuadTreeHandle;
+
+	FORCEINLINE_DEBUGGABLE FQuadTreeWaveWorksArgsWorkArea(
+		FRHICommandListBase* InCheckCmdList,
+		FWaveWorksRHIRef _WaveWorks,
+		struct GFSDK_WaveWorks_Quadtree* _QuadTreeHandle,
+		FMatrix _ViewMatrix,
+		FMatrix _ProjMatrix,
+		TArray<uint32> _ShaderInputMappings
+		)
+		: WaveWorks(_WaveWorks)
+		, QuadTreeHandle(_QuadTreeHandle)
+		, ViewMatrix(_ViewMatrix)
+		, ProjMatrix(_ProjMatrix)
+		, ShaderInputMappings(_ShaderInputMappings)
+#if DO_CHECK
+		, CheckCmdList(InCheckCmdList)
+		, UID(InCheckCmdList->GetUID())
+#endif
+	{
+	}
+};
+// WaveWorks End
+
+// WaveWorks Begin
+struct FRHICommandBuildDrawQuadTreeWaveWorks : public FRHICommand<FRHICommandBuildDrawQuadTreeWaveWorks>
+{
+	FQuadTreeWaveWorksArgsWorkArea WorkArea;
+
+	FORCEINLINE_DEBUGGABLE FRHICommandBuildDrawQuadTreeWaveWorks(
+		FRHICommandListBase* CheckCmdList,
+		FWaveWorksRHIRef WaveWorks,
+		struct GFSDK_WaveWorks_Quadtree* QuadTreeHandle,
+		FMatrix ViewMatrix,
+		FMatrix ProjMatrix,
+		TArray<uint32> ShaderInputMappings
+		)
+		: WorkArea(CheckCmdList, WaveWorks, QuadTreeHandle, ViewMatrix, ProjMatrix, ShaderInputMappings)
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+// WaveWorks End
+
 struct FComputedGraphicsPipelineState
 {
 	FGraphicsPipelineStateRHIRef GraphicsPipelineState;
@@ -1415,6 +1493,66 @@ struct FRHICommandSetLocalGraphicsPipelineState : public FRHICommand<FRHICommand
 
 	RHI_API void Execute(FRHICommandListBase& CmdList);
 };
+
+
+// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+struct FRHICommandBeginAccumulation : public FRHICommand<FRHICommandBeginAccumulation>
+{
+	FTextureRHIParamRef SceneDepthTextureRHI;
+	TArray<NvVl::ViewerDesc> ViewerDescs;
+	NvVl::MediumDesc MediumDesc;
+	NvVl::DebugFlags DebugFlags;
+
+	FORCEINLINE_DEBUGGABLE FRHICommandBeginAccumulation(FTextureRHIParamRef InSceneDepthTextureRHI, const TArray<NvVl::ViewerDesc>& InViewerDescs, const NvVl::MediumDesc& InMediumDesc, NvVl::DebugFlags InDebugFlags)
+		: SceneDepthTextureRHI(InSceneDepthTextureRHI)
+		, ViewerDescs(InViewerDescs)
+		, MediumDesc(InMediumDesc)
+		, DebugFlags(InDebugFlags)
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+struct FRHICommandRenderVolume : public FRHICommand<FRHICommandRenderVolume>
+{
+	TArray<FTextureRHIParamRef> ShadowMapTextures;
+	NvVl::ShadowMapDesc ShadowMapDesc;
+	NvVl::LightDesc LightDesc;
+	NvVl::VolumeDesc VolumeDesc;
+
+	FORCEINLINE_DEBUGGABLE FRHICommandRenderVolume(const TArray<FTextureRHIParamRef>& InShadowMapTextures, const NvVl::ShadowMapDesc& InShadowMapDesc, const NvVl::LightDesc& InLightDesc, const NvVl::VolumeDesc& InVolumeDesc)
+		: ShadowMapTextures(InShadowMapTextures)
+		, ShadowMapDesc(InShadowMapDesc)
+		, LightDesc(InLightDesc)
+		, VolumeDesc(InVolumeDesc)
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+struct FRHICommandEndAccumulation : public FRHICommand<FRHICommandEndAccumulation>
+{
+	FORCEINLINE_DEBUGGABLE FRHICommandEndAccumulation()
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+struct FRHICommandApplyLighting : public FRHICommand<FRHICommandApplyLighting>
+{
+	FTextureRHIParamRef SceneColorSurfaceRHI;
+	NvVl::PostprocessDesc PostprocessDesc;
+
+	FORCEINLINE_DEBUGGABLE FRHICommandApplyLighting(FTextureRHIParamRef InSceneColorSurfaceRHI, const NvVl::PostprocessDesc& InPostprocessDesc)
+		: SceneColorSurfaceRHI(InSceneColorSurfaceRHI)
+		, PostprocessDesc(InPostprocessDesc)
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+#endif
+// NVCHANGE_END: Nvidia Volumetric Lighting
 
 struct FComputedUniformBuffer
 {
@@ -1658,9 +1796,143 @@ struct FRHICommandUpdateTextureReference : public FRHICommand<FRHICommandUpdateT
 	RHI_API void Execute(FRHICommandListBase& CmdList);
 };
 
+// NvFlow begin
+struct FRHICommandNvFlowWork : public FRHICommand<FRHICommandNvFlowWork>
+{
+	void(*WorkFunc)(void*,SIZE_T,IRHICommandContext*);
+	void* ParamData;
+	SIZE_T NumBytes;
+	FORCEINLINE_DEBUGGABLE FRHICommandNvFlowWork(void(*WorkFunc)(void*,SIZE_T,IRHICommandContext*), void* ParamData, SIZE_T NumBytes)
+		: WorkFunc(WorkFunc)
+		, ParamData(ParamData)
+		, NumBytes(NumBytes)
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+// NvFlow end
 
 #define CMD_CONTEXT(Method) GetContext().Method
 #define COMPUTE_CONTEXT(Method) GetComputeContext().Method
+
+// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+
+struct FRHICommandRenderHBAO : public FRHICommand<FRHICommandRenderHBAO>
+{
+	FTextureRHIParamRef SceneDepthTextureRHI;
+	FMatrix ProjectionMatrix;
+	FTextureRHIParamRef SceneNormalTextureRHI;
+	FMatrix ViewMatrix;
+	FTextureRHIParamRef SceneColorTextureRHI;
+	GFSDK_SSAO_Parameters AOParams;
+
+	FORCEINLINE_DEBUGGABLE FRHICommandRenderHBAO(
+		const FTextureRHIParamRef InSceneDepthTextureRHI,
+		const FMatrix& InProjectionMatrix,
+		const FTextureRHIParamRef InSceneNormalTextureRHI,
+		const FMatrix& InViewMatrix,
+		const FTextureRHIParamRef InSceneColorTextureRHI,
+		const GFSDK_SSAO_Parameters& InAOParams
+	)
+		: SceneDepthTextureRHI(InSceneDepthTextureRHI)
+		, ProjectionMatrix(InProjectionMatrix)
+		, SceneNormalTextureRHI(InSceneNormalTextureRHI)
+		, ViewMatrix(InViewMatrix)
+		, SceneColorTextureRHI(InSceneColorTextureRHI)
+		, AOParams(InAOParams)
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+#endif
+// NVCHANGE_END: Add HBAO+
+
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+
+struct FRHIVXGICleanupAfterVoxelization : public FRHICommand<FRHIVXGICleanupAfterVoxelization>
+{
+	FORCEINLINE_DEBUGGABLE FRHIVXGICleanupAfterVoxelization()
+	{
+	}
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+struct FRHISetViewportsAndScissorRects : public FRHICommand<FRHISetViewportsAndScissorRects>
+{
+	uint32 Count;
+	TArray<FViewportBounds> Viewports;
+	TArray<FScissorRect> ScissorRects;
+
+	FORCEINLINE_DEBUGGABLE FRHISetViewportsAndScissorRects(uint32 InCount, const FViewportBounds* InViewports, const FScissorRect* InScissorRects)
+	{
+		Count = InCount;
+		Viewports.SetNum(Count);
+		ScissorRects.SetNum(Count);
+		FMemory::Memmove(Viewports.GetData(), InViewports, Count * sizeof(FViewportBounds));
+		FMemory::Memmove(ScissorRects.GetData(), InScissorRects, Count * sizeof(FScissorRect));
+	}
+
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+struct FRHIDispatchIndirectComputeShaderStructured : public FRHICommand<FRHIDispatchIndirectComputeShaderStructured>
+{
+	FStructuredBufferRHIRef ArgumentBuffer;
+	uint32 ArgumentOffset;
+
+	FORCEINLINE_DEBUGGABLE FRHIDispatchIndirectComputeShaderStructured(FStructuredBufferRHIParamRef InArgumentBuffer, uint32 InArgumentOffset)
+		: ArgumentBuffer(InArgumentBuffer)
+		, ArgumentOffset(InArgumentOffset)
+	{
+	}
+
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+struct FRHICopyStructuredBufferData : public FRHICommand<FRHICopyStructuredBufferData>
+{
+	FStructuredBufferRHIRef DestBuffer;
+	uint32 DestOffset;
+	FStructuredBufferRHIRef SrcBuffer;
+	uint32 SrcOffset;
+	uint32 DataSize;
+
+	FORCEINLINE_DEBUGGABLE FRHICopyStructuredBufferData(
+		FStructuredBufferRHIParamRef InDestBuffer,
+		uint32 InDestOffset,
+		FStructuredBufferRHIParamRef InSrcBuffer,
+		uint32 InSrcOffset,
+		uint32 InDataSize
+	)
+		: DestBuffer(InDestBuffer)
+		, DestOffset(InDestOffset)
+		, SrcBuffer(InSrcBuffer)
+		, SrcOffset(InSrcOffset)
+		, DataSize(InDataSize)
+	{
+	}
+
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+
+struct FRHIExecuteVxgiRenderingCommand : public FRHICommand<FRHIExecuteVxgiRenderingCommand>
+{
+	NVRHI::IRenderThreadCommand* Command;
+
+	FORCEINLINE_DEBUGGABLE FRHIExecuteVxgiRenderingCommand(
+		NVRHI::IRenderThreadCommand* InCommand
+	)
+		: Command(InCommand)
+	{
+	}
+
+	RHI_API void Execute(FRHICommandListBase& CmdList);
+};
+#endif
+// NVCHANGE_END: Add VXGI
 
 template<> void FRHICommandSetShaderParameter<FComputeShaderRHIParamRef, ECmdList::ECompute>::Execute(FRHICommandListBase& CmdList);
 template<> void FRHICommandSetShaderUniformBuffer<FComputeShaderRHIParamRef, ECmdList::ECompute>::Execute(FRHICommandListBase& CmdList);
@@ -2280,6 +2552,25 @@ public:
 		return Data.LocalRHIRenderPass == nullptr && Data.LocalRHIParallelRenderPass == nullptr;
 	}
 
+	// WaveWorks Begin
+	FORCEINLINE_DEBUGGABLE void DrawQuadTreeWaveWorks(FWaveWorksRHIRef waveWorks, struct GFSDK_WaveWorks_Quadtree* QuadTreeHandle, FMatrix ViewMatrix, FMatrix ProjMatrix, const TArray<uint32>& ShaderInputMappings)
+	{
+		if (Bypass())
+		{
+			waveWorks->DrawQuadTree(
+				QuadTreeHandle,
+				ViewMatrix,
+				ProjMatrix,
+				ShaderInputMappings
+				);
+		}
+		else
+		{
+			new (AllocCommand<FRHICommandBuildDrawQuadTreeWaveWorks>()) FRHICommandBuildDrawQuadTreeWaveWorks(this, waveWorks, QuadTreeHandle, ViewMatrix, ProjMatrix, ShaderInputMappings);
+		}
+	}
+	// WaveWorks End
+
 	FORCEINLINE_DEBUGGABLE void BeginUpdateMultiFrameResource( FTextureRHIParamRef Texture)
 	{
 		check(IsOutsideRenderPass());
@@ -2518,6 +2809,18 @@ public:
 		}
 		new (AllocCommand<FRHICommandSetBlendFactor>()) FRHICommandSetBlendFactor(BlendFactor);
 	}
+
+	// WaveWorks Start
+	FORCEINLINE_DEBUGGABLE void SetWaveWorksState(FWaveWorksRHIParamRef State, const FMatrix ViewMatrix, const TArray<uint32>& ShaderInputMappings)
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(RHISetWaveWorksState)(State, ViewMatrix, ShaderInputMappings);
+			return;
+		}
+		new (AllocCommand<FRHICommandSetWaveWorksState>()) FRHICommandSetWaveWorksState(State, ViewMatrix, ShaderInputMappings);
+	}
+	// WaveWorks End
 
 	FORCEINLINE_DEBUGGABLE void DrawPrimitive(uint32 PrimitiveType, uint32 BaseVertexIndex, uint32 NumPrimitives, uint32 NumInstances)
 	{
@@ -2948,6 +3251,41 @@ public:
 		new (AllocCommand<FRHICommandClearTinyUAV>()) FRHICommandClearTinyUAV(UnorderedAccessViewRHI, Values);
 	}
 
+	// NVCHANGE_BEGIN: Add HBAO+
+#if WITH_GFSDK_SSAO
+
+	FORCEINLINE_DEBUGGABLE void RenderHBAO(
+		const FTextureRHIParamRef SceneDepthTextureRHI,
+		const FMatrix& ProjectionMatrix,
+		const FTextureRHIParamRef SceneNormalTextureRHI,
+		const FMatrix& ViewMatrix,
+		const FTextureRHIParamRef SceneColorTextureRHI,
+		const GFSDK_SSAO_Parameters& AOParams
+	)
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(RHIRenderHBAO)(
+				SceneDepthTextureRHI,
+				ProjectionMatrix,
+				SceneNormalTextureRHI,
+				ViewMatrix,
+				SceneColorTextureRHI,
+				AOParams);
+			return;
+		}
+		new (AllocCommand<FRHICommandRenderHBAO>()) FRHICommandRenderHBAO(
+			SceneDepthTextureRHI,
+			ProjectionMatrix,
+			SceneNormalTextureRHI,
+			ViewMatrix,
+			SceneColorTextureRHI,
+			AOParams);
+	}
+
+#endif
+	// NVCHANGE_END: Add HBAO+
+
 	FORCEINLINE_DEBUGGABLE void BeginRenderQuery(FRenderQueryRHIParamRef RenderQuery)
 	{
 		if (Bypass())
@@ -3222,6 +3560,136 @@ public:
 		new (AllocCommand<FRHICommandDebugBreak>()) FRHICommandDebugBreak();
 #endif
 	}
+
+	// NvFlow begin
+	FORCEINLINE_DEBUGGABLE void NvFlowWork(void(*WorkFunc)(void*,SIZE_T,IRHICommandContext*), void* ParamData, SIZE_T NumBytes)
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(NvFlowWork)(WorkFunc, ParamData, NumBytes);
+			return;
+		}
+		// need local copy
+		void* UseData = ParamData;
+		if (NumBytes > 0u)
+		{
+			UseData = Alloc(NumBytes, 16u);
+			FMemory::Memcpy(UseData, ParamData, NumBytes);
+		}
+		new (AllocCommand<FRHICommandNvFlowWork>()) FRHICommandNvFlowWork(WorkFunc, UseData, NumBytes);
+	}
+	// NvFlow end
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	FORCEINLINE_DEBUGGABLE void VXGICleanupAfterVoxelization()
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(RHIVXGICleanupAfterVoxelization)();
+			return;
+		}
+		new (AllocCommand<FRHIVXGICleanupAfterVoxelization>()) FRHIVXGICleanupAfterVoxelization();
+	}
+
+	FORCEINLINE_DEBUGGABLE void SetViewportsAndScissorRects(uint32 Count, const FViewportBounds* Viewports, const FScissorRect* ScissorRects)
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(RHISetViewportsAndScissorRects)(Count, Viewports, ScissorRects);
+			return;
+		}
+		new (AllocCommand<FRHISetViewportsAndScissorRects>()) FRHISetViewportsAndScissorRects(Count, Viewports, ScissorRects);
+	}
+
+	FORCEINLINE_DEBUGGABLE void DispatchIndirectComputeShaderStructured(FStructuredBufferRHIParamRef ArgumentBuffer, uint32 ArgumentOffset)
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(RHIDispatchIndirectComputeShaderStructured)(ArgumentBuffer, ArgumentOffset);
+			return;
+		}
+		new (AllocCommand<FRHIDispatchIndirectComputeShaderStructured>()) FRHIDispatchIndirectComputeShaderStructured(ArgumentBuffer, ArgumentOffset);
+	}
+
+	FORCEINLINE_DEBUGGABLE void CopyStructuredBufferData(FStructuredBufferRHIParamRef DestBuffer, uint32 DestOffset, FStructuredBufferRHIParamRef SrcBuffer, uint32 SrcOffset, uint32 DataSize)
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(RHICopyStructuredBufferData)(DestBuffer, DestOffset, SrcBuffer, SrcOffset, DataSize);
+			return;
+		}
+		new (AllocCommand<FRHICopyStructuredBufferData>()) FRHICopyStructuredBufferData(DestBuffer, DestOffset, SrcBuffer, SrcOffset, DataSize);
+	}
+
+	FORCEINLINE_DEBUGGABLE void ExecuteVxgiRenderingCommand(NVRHI::IRenderThreadCommand* Command)
+	{
+		if (Bypass())
+		{
+			CMD_CONTEXT(RHIExecuteVxgiRenderingCommand)(Command);
+			return;
+		}
+		new (AllocCommand<FRHIExecuteVxgiRenderingCommand>()) FRHIExecuteVxgiRenderingCommand(Command);
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	FORCEINLINE_DEBUGGABLE void BeginAccumulation(FTextureRHIParamRef SceneDepthTextureRHI, const TArray<NvVl::ViewerDesc>& ViewerDescs, const NvVl::MediumDesc& MediumDesc, NvVl::DebugFlags DebugFlags)
+	{
+		if (Bypass())
+		{
+			if (GNVVolumetricLightingRHI)
+			{
+				GNVVolumetricLightingRHI->BeginAccumulation(SceneDepthTextureRHI, ViewerDescs, MediumDesc, DebugFlags);
+			}
+			return;
+		}
+		new (AllocCommand<FRHICommandBeginAccumulation>()) FRHICommandBeginAccumulation(SceneDepthTextureRHI, ViewerDescs, MediumDesc, DebugFlags);
+	}
+
+	FORCEINLINE_DEBUGGABLE void RenderVolume(const TArray<FTextureRHIParamRef>& ShadowMapTextures, const NvVl::ShadowMapDesc& ShadowMapDesc, const NvVl::LightDesc& LightDesc, const NvVl::VolumeDesc& VolumeDesc)
+	{
+		if (Bypass())
+		{
+			if (GNVVolumetricLightingRHI)
+			{
+				GNVVolumetricLightingRHI->RenderVolume(ShadowMapTextures, ShadowMapDesc, LightDesc, VolumeDesc);
+			}
+			return;
+		}
+		new (AllocCommand<FRHICommandRenderVolume>()) FRHICommandRenderVolume(ShadowMapTextures, ShadowMapDesc, LightDesc, VolumeDesc);
+	}
+
+	FORCEINLINE_DEBUGGABLE void EndAccumulation()
+	{
+		if (Bypass())
+		{
+			if (GNVVolumetricLightingRHI)
+			{
+				GNVVolumetricLightingRHI->EndAccumulation();
+			}
+			return;
+		}
+		new (AllocCommand<FRHICommandEndAccumulation>()) FRHICommandEndAccumulation();
+	}
+
+	FORCEINLINE_DEBUGGABLE void ApplyLighting(FTextureRHIParamRef SceneColorSurfaceRHI, const NvVl::PostprocessDesc& PostprocessDesc)
+	{
+		if (Bypass())
+		{
+			if (GNVVolumetricLightingRHI)
+			{
+				GNVVolumetricLightingRHI->ApplyLighting(SceneColorSurfaceRHI, PostprocessDesc);
+			}
+			return;
+		}
+		new (AllocCommand<FRHICommandApplyLighting>()) FRHICommandApplyLighting(SceneColorSurfaceRHI, PostprocessDesc);
+	}
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
 };
 
 class RHI_API FRHIAsyncComputeCommandList : public FRHICommandListBase

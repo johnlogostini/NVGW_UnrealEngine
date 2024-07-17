@@ -758,6 +758,9 @@ void UPhysicsAsset::BodyFindConstraints(int32 BodyIndex, TArray<int32>& Constrai
 }
 
 #if WITH_EDITOR
+//#nv begin #Blast Physics asset change broadcast
+UPhysicsAsset::FRefreshPhysicsAssetChangeDelegate UPhysicsAsset::OnRefreshPhysicsAssetChange;
+//nv end
 void UPhysicsAsset::RefreshPhysicsAssetChange() const
 {
 	for (FObjectIterator Iter(USkeletalMeshComponent::StaticClass()); Iter; ++Iter)
@@ -775,6 +778,9 @@ void UPhysicsAsset::RefreshPhysicsAssetChange() const
 			}
 		}
 	}
+//#nv begin #Blast Physics asset change broadcast
+	OnRefreshPhysicsAssetChange.Broadcast(this);
+//nv end
 }
 
 USkeletalMesh* UPhysicsAsset::GetPreviewMesh() const

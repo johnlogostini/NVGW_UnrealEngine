@@ -18,6 +18,11 @@
 #include "Engine/InheritableComponentHandler.h"
 #include "ComponentUtils.h"
 
+// WaveWorks Start
+#include "Components/WaveWorksComponent.h"
+#include "Components/WaveWorksShorelineCaptureComponent.h"
+// WaveWorks End
+
 #define LOCTEXT_NAMESPACE "SceneComponentDetails"
 
 
@@ -261,6 +266,25 @@ void FSceneComponentDetails::MakeTransformDetails( IDetailLayoutBuilder& DetailB
 	{
 		TArray< TWeakObjectPtr<UObject> > SceneComponentObjects;
 		DetailBuilder.GetObjectsBeingCustomized( SceneComponentObjects );
+
+		// WaveWorks Start
+		bool bFindWaveWorksRelatedClass = false;
+		for (int32 ComponentIndex = 0; ComponentIndex < SceneComponentObjects.Num(); ++ComponentIndex)
+		{
+			UWaveWorksComponent* WaveWorksComponent = Cast<UWaveWorksComponent>(SceneComponentObjects[ComponentIndex].Get());
+			UWaveWorksShorelineCaptureComponent* WaveWorksShorelineCaptureComponent = Cast<UWaveWorksShorelineCaptureComponent>(SceneComponentObjects[ComponentIndex].Get());
+			if (WaveWorksComponent != nullptr || WaveWorksShorelineCaptureComponent != nullptr)
+			{
+				bFindWaveWorksRelatedClass = true;
+				break;
+			}
+		}
+
+		if (bFindWaveWorksRelatedClass)
+		{
+			return;
+		}
+		// WaveWorks End
 
 		// Default to showing the transform for all components unless we are viewing a non-Blueprint class default object (the transform is not used in that case)
 		bool bShouldShowTransform = !DetailBuilder.GetDetailsView()->HasClassDefaultObject() || bIsEditingBlueprintDefaults;

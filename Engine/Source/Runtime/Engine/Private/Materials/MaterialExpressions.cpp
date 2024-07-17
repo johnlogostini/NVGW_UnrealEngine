@@ -149,6 +149,7 @@
 #include "Materials/MaterialExpressionSceneDepth.h"
 #include "Materials/MaterialExpressionSceneTexelSize.h"
 #include "Materials/MaterialExpressionSceneTexture.h"
+#include "Materials/MaterialExpressionFlexFluidSurfaceThickness.h"
 #include "Materials/MaterialExpressionScreenPosition.h"
 #include "Materials/MaterialExpressionSine.h"
 #include "Materials/MaterialExpressionSobol.h"
@@ -193,6 +194,14 @@
 #include "Materials/MaterialExpressionAtmosphericLightVector.h"
 #include "Materials/MaterialExpressionAtmosphericLightColor.h"
 
+// WaveWorks Start
+#include "Materials/MaterialExpressionWaveWorks.h"
+// WaveWorks End
+
+// NVCHANGE_BEGIN: Add VXGI
+#include "Materials/MaterialExpressionVxgiVoxelization.h"
+#include "Materials/MaterialExpressionVxgiTraceCone.h"
+// NVCHANGE_END: Add VXGI
 #include "EditorSupportDelegates.h"
 #include "MaterialCompiler.h"
 #if WITH_EDITOR
@@ -2370,6 +2379,86 @@ const TCHAR* UMaterialExpressionTextureSampleParameterSubUV::GetRequirements()
 	return UMaterialExpressionTextureSampleParameter2D::GetRequirements();
 }
 
+
+///////////////////////////////////////////////////////////////////////////////
+// UMaterialExpressionFlexFluidSurfaceThickness
+///////////////////////////////////////////////////////////////////////////////
+UMaterialExpressionFlexFluidSurfaceThickness::UMaterialExpressionFlexFluidSurfaceThickness(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	// Structure to hold one-time initialization
+	struct FConstructorStatics
+	{
+		FText NAME_Texture;
+		FConstructorStatics()
+			: NAME_Texture(LOCTEXT("Texture", "Texture"))
+		{
+		}
+	};
+	static FConstructorStatics ConstructorStatics;
+
+#if WITH_EDITOR
+	MenuCategories.Add(ConstructorStatics.NAME_Texture);
+#endif // WITH_EDITOR
+
+	bShaderInputData = true;
+	ConstInput = FVector2D(0.f, 0.f);
+}
+
+#if WITH_EDITOR
+
+int32 UMaterialExpressionFlexFluidSurfaceThickness::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex)
+{
+	int32 OffsetIndex = INDEX_NONE;
+	int32 CoordinateIndex = INDEX_NONE;
+	bool bUseOffset = false;
+
+
+	if (InputMode == EMaterialSceneAttributeInputMode::OffsetFraction)
+	{
+		if (Input.Expression)
+		{
+			OffsetIndex = Input.Compile(Compiler);
+		}
+		else
+		{
+			OffsetIndex = Compiler->Constant2(ConstInput.X, ConstInput.Y);
+		}
+
+		bUseOffset = true;
+	}
+	else if (InputMode == EMaterialSceneAttributeInputMode::Coordinates)
+	{
+		if (Input.Expression)
+		{
+			CoordinateIndex = Input.Compile(Compiler);
+		}
+	}
+
+	int32 Result = Compiler->FlexFluidSurfaceThickness(OffsetIndex, CoordinateIndex, bUseOffset);
+	return Result;
+}
+
+
+void UMaterialExpressionFlexFluidSurfaceThickness::GetCaption(TArray<FString>& OutCaptions) const
+{
+	OutCaptions.Add(TEXT("FlexFluidSurface Thickness"));
+}
+
+#endif // WITH_EDITOR
+
+FString UMaterialExpressionFlexFluidSurfaceThickness::GetInputName(int32 InputIndex) const
+{
+	if (InputIndex == 0)
+	{
+		// Display the current InputMode enum's display name.
+		UByteProperty* InputModeProperty = NULL;
+		InputModeProperty = FindField<UByteProperty>(UMaterialExpressionFlexFluidSurfaceThickness::StaticClass(), "InputMode");
+		return InputModeProperty->Enum->GetNameStringByIndex((int32)InputMode.GetValue());
+	}
+	return TEXT("");
+}
+
 #if WITH_EDITOR
 int32 UMaterialExpressionAdd::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex)
 {
@@ -3300,6 +3389,104 @@ bool UMaterialExpressionStaticComponentMaskParameter::IsNamedParameter(FName InP
 
 	return false;
 }
+
+// NVCHANGE_BEGIN: Add VXGI
+
+//
+//	UMaterialExpressionVxgiVoxelization
+//
+
+UMaterialExpressionVxgiVoxelization::UMaterialExpressionVxgiVoxelization(const class FObjectInitializer& PCIP)
+	: Super(PCIP)
+{
+	// Structure to hold one-time initialization
+	struct FConstructorStatics
+	{
+		FText NAME_Constants;
+		FConstructorStatics()
+			: NAME_Constants(LOCTEXT("Constants", "Constants"))
+		{
+		}
+	};
+	static FConstructorStatics ConstructorStatics;
+
+#if WITH_EDITORONLY_DATA
+	MenuCategories.Add(ConstructorStatics.NAME_Constants);
+#endif
+	bShaderInputData = true;
+}
+
+#if WITH_EDITOR
+int32 UMaterialExpressionVxgiVoxelization::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex)
+{
+#if WITH_GFSDK_VXGI
+	return Compiler->VxgiVoxelization();
+#else
+	return Compiler->Constant(0);
+#endif
+}
+
+void UMaterialExpressionVxgiVoxelization::GetCaption(TArray<FString>& OutCaptions) const
+{
+	OutCaptions.Add(TEXT("IsVxgiVoxelization"));
+}
+#endif // WITH_EDITOR
+//
+//	UMaterialExpressionVxgiTraceCone
+//
+
+UMaterialExpressionVxgiTraceCone::UMaterialExpressionVxgiTraceCone(const class FObjectInitializer& PCIP)
+	: Super(PCIP)
+{
+	// Structure to hold one-time initialization
+	struct FConstructorStatics
+	{
+		FText NAME_Lighting;
+		FConstructorStatics()
+			: NAME_Lighting(LOCTEXT("Lighting", "Lighting"))
+		{
+		}
+	};
+	static FConstructorStatics ConstructorStatics;
+
+#if WITH_EDITORONLY_DATA
+	MenuCategories.Add(ConstructorStatics.NAME_Lighting);
+#endif
+	bShaderInputData = true;
+
+	MaxSamples = 128;
+
+	Outputs.Reset();
+	Outputs.Add(FExpressionOutput(TEXT("Irradiance"), 1, 1, 1, 1, 0));
+}
+
+#if WITH_EDITOR
+int32 UMaterialExpressionVxgiTraceCone::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex)
+{
+#if WITH_GFSDK_VXGI
+	if (!StartPos.Expression || !Direction.Expression || !ConeFactor.Expression)
+	{
+		return CompilerError(Compiler, TEXT("Cone tracing requires StartPos, Direction and ConeFactor arguments"));
+	}
+
+	int32 StartPosArg = StartPos.Compile(Compiler);
+	int32 DirectionArg = Direction.Compile(Compiler);
+	int32 ConeFactorArg = ConeFactor.Compile(Compiler);
+	int32 InitialOffsetArg = InitialOffset.Expression ? InitialOffset.Compile(Compiler) : Compiler->Constant(1.f);
+	int32 TracingStepArg = TracingStep.Expression ? TracingStep.Compile(Compiler) : Compiler->Constant(1.f);
+
+	return Compiler->VxgiTraceCone(StartPosArg, DirectionArg, ConeFactorArg, InitialOffsetArg, TracingStepArg, MaxSamples);
+#else
+	return Compiler->Constant(0);
+#endif
+}
+
+void UMaterialExpressionVxgiTraceCone::GetCaption(TArray<FString>& OutCaptions) const
+{
+	OutCaptions.Add(TEXT("VxgiTraceCone"));
+}
+#endif // WITH_EDITOR
+// NVCHANGE_END: Add VXGI
 
 //
 //	UMaterialExpressionTime
@@ -12287,6 +12474,52 @@ void UMaterialExpressionEyeAdaptation::GetCaption(TArray<FString>& OutCaptions) 
 	OutCaptions.Add(FString(TEXT("EyeAdaptation")));
 }
 #endif // WITH_EDITOR
+
+// WaveWorks Start
+///////////////////////////////////////////////////////////////////////////////
+// UMaterialExpressionWaveWorks
+///////////////////////////////////////////////////////////////////////////////
+UMaterialExpressionWaveWorks::UMaterialExpressionWaveWorks(const class FObjectInitializer& PCIP)
+	: Super(PCIP)
+{
+	// Structure to hold one-time initialization
+	struct FConstructorStatics
+	{
+		FText NAME_WaveWorks;
+		FConstructorStatics()
+			: NAME_WaveWorks(LOCTEXT("WaveWorks", "WaveWorks"))
+		{
+		}
+	};
+	static FConstructorStatics ConstructorStatics;
+
+#if WITH_EDITORONLY_DATA
+	MenuCategories.Add(ConstructorStatics.NAME_WaveWorks);
+#endif
+
+	Outputs.Reset();
+	Outputs.Add(FExpressionOutput(TEXT("Foam"), 1, 1, 1, 1, 0));
+	Outputs.Add(FExpressionOutput(TEXT("Normal"), 1, 1, 1, 1, 0));
+	Outputs.Add(FExpressionOutput(TEXT("WorldPosUndisplaced"), 1, 1, 1, 1, 0));
+	Outputs.Add(FExpressionOutput(TEXT("Displacement"), 1, 1, 1, 1, 0));
+	Outputs.Add(FExpressionOutput(TEXT("DistanceToShoreline"), 1, 1, 1, 1, 0));
+	bShowOutputNameOnPin = true;
+}
+
+#if WITH_EDITOR
+
+int32 UMaterialExpressionWaveWorks::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex)
+{
+	return Compiler->WaveWorks(GetOutputs()[OutputIndex].OutputName);
+}
+
+void UMaterialExpressionWaveWorks::GetCaption(TArray<FString>& OutCaptions) const
+{
+	OutCaptions.Add(TEXT("WaveWorks"));
+}
+
+#endif
+// WaveWorks End
 
 //
 // UMaterialExpressionTangentOutput

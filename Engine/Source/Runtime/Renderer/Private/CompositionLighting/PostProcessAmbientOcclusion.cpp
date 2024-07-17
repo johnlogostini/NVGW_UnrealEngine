@@ -255,6 +255,9 @@ public:
 	FPostProcessPassParameters PostprocessParameter;
 	FDeferredPixelShaderParameters DeferredParameters;
 	FShaderParameter AmbientOcclusionSetupParams;
+	// NVCHANGE_BEGIN: Add VXGI
+	FShaderParameter VxaoIntensity;
+	// NVCHANGE_END: Add VXGI
 
 	/** Initialization constructor. */
 	FPostProcessAmbientOcclusionSetupPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -263,6 +266,9 @@ public:
 		PostprocessParameter.Bind(Initializer.ParameterMap);
 		DeferredParameters.Bind(Initializer.ParameterMap);
 		AmbientOcclusionSetupParams.Bind(Initializer.ParameterMap, TEXT("AmbientOcclusionSetupParams"));
+		// NVCHANGE_BEGIN: Add VXGI
+		VxaoIntensity.Bind(Initializer.ParameterMap, TEXT("VxaoIntensity"));
+		// NVCHANGE_END: Add VXGI
 	}
 
 	void SetParameters(const FRenderingCompositePassContext& Context)
@@ -281,6 +287,10 @@ public:
 		// /1000 to be able to define the value in that distance
 		FVector4 AmbientOcclusionSetupParamsValue = FVector4(ScaleToFullRes, Settings.AmbientOcclusionMipThreshold / ScaleToFullRes, Context.View.ViewRect.Width(), Context.View.ViewRect.Height());
 		SetShaderValue(Context.RHICmdList, ShaderRHI, AmbientOcclusionSetupParams, AmbientOcclusionSetupParamsValue);
+
+		// NVCHANGE_BEGIN: Add VXGI
+		SetShaderValue(Context.RHICmdList, ShaderRHI, VxaoIntensity, Context.View.FinalPostProcessSettings.VxgiAmbientMixIntensity);
+		// NVCHANGE_END: Add VXGI
 	}
 
 	// FShader interface.
@@ -288,6 +298,9 @@ public:
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
 		Ar << PostprocessParameter << DeferredParameters << AmbientOcclusionSetupParams;
+		// NVCHANGE_BEGIN: Add VXGI
+		Ar << VxaoIntensity;
+		// NVCHANGE_END: Add VXGI
 		return bShaderHasOutdatedParameters;
 	}
 
@@ -485,6 +498,9 @@ public:
 	FShaderResourceParameter RandomNormalTexture;
 	FShaderResourceParameter RandomNormalTextureSampler;
 	FShaderParameter OutTexture;
+	// NVCHANGE_BEGIN: Add VXGI
+	FShaderParameter VxaoIntensity;
+	// NVCHANGE_END: Add VXGI
 
 	/** Initialization constructor. */
 	FPostProcessAmbientOcclusionPSandCS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -497,6 +513,9 @@ public:
 		RandomNormalTextureSampler.Bind(Initializer.ParameterMap, TEXT("RandomNormalTextureSampler"));
 		HZBRemapping.Bind(Initializer.ParameterMap, TEXT("HZBRemapping"));
 		OutTexture.Bind(Initializer.ParameterMap, TEXT("OutTexture"));
+		// NVCHANGE_BEGIN: Add VXGI
+		VxaoIntensity.Bind(Initializer.ParameterMap, TEXT("VxaoIntensity"));
+		// NVCHANGE_END: Add VXGI
 	}
 
 	FVector4 GetHZBValue(const FViewInfo& View)
@@ -553,6 +572,10 @@ public:
 		SetTextureParameter(RHICmdList, ShaderRHI, RandomNormalTexture, RandomNormalTextureSampler, TStaticSamplerState<SF_Point, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI(), SSAORandomization.ShaderResourceTexture);
 		ScreenSpaceAOParams.Set(RHICmdList, View, ShaderRHI, InputTextureSize);
 		SetShaderValue(RHICmdList, ShaderRHI, HZBRemapping, HZBRemappingValue);
+
+		// NVCHANGE_BEGIN: Add VXGI
+		SetShaderValue(Context.RHICmdList, ShaderRHI, VxaoIntensity, Context.View.FinalPostProcessSettings.VxgiAmbientMixIntensity);
+		// NVCHANGE_END: Add VXGI
 	}
 
 	template <typename TRHICmdList>
@@ -567,6 +590,9 @@ public:
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
 		Ar << HZBRemapping << PostprocessParameter << DeferredParameters << ScreenSpaceAOParams << RandomNormalTexture << RandomNormalTextureSampler << OutTexture;
+		// NVCHANGE_BEGIN: Add VXGI
+		Ar << VxaoIntensity;
+		// NVCHANGE_END: Add VXGI
 		return bShaderHasOutdatedParameters;
 	}
 

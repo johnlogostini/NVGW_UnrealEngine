@@ -116,6 +116,7 @@ struct FShaderCodeChunk
 	{}
 };
 
+
 class FHLSLMaterialTranslator : public FMaterialCompiler
 {
 protected:
@@ -243,6 +244,11 @@ protected:
 	/** Tracks the number of texture coordinates used by the vertex shader in this material. */
 	uint32 NumUserVertexTexCoords;
 
+// WaveWorks Start
+	/** true if the material reads waveworks in the pixel shader. */
+	uint32 bUseWaveWorks : 1;
+// WaveWorks End
+
 public: 
 
 	FHLSLMaterialTranslator(FMaterial* InMaterial,
@@ -292,6 +298,9 @@ public:
 	,	bUsesEmissiveColor(0)
 	,	NumUserTexCoords(0)
 	,	NumUserVertexTexCoords(0)
+// WaveWorks Start
+	,	bUseWaveWorks(false)
+// WaveWorks End
 	{
 		FMemory::Memzero(SharedPixelProperties);
 
@@ -847,8 +856,7 @@ public:
 				// Using \n instead of LINE_TERMINATOR as not all of the lines are terminated consistently
 				// Subtract one from the last found line ending index to make sure we skip over it
 				StartPosition = MaterialTemplate.Find(TEXT("\n"), ESearchCase::CaseSensitive, ESearchDir::FromEnd, StartPosition - 1);
-			} 
-			while (StartPosition != INDEX_NONE);
+			} while (StartPosition != INDEX_NONE);
 			check(MaterialTemplateLineNumber != INDEX_NONE);
 			// At this point MaterialTemplateLineNumber is one less than the line number of the '#line' statement
 			// For some reason we have to add 2 more to the #line value to get correct error line numbers from D3DXCompileShader
@@ -920,6 +928,11 @@ public:
 		{
 			OutEnvironment.SetDefine(TEXT("USES_SPEEDTREE"),TEXT("1"));
 		}
+
+// WaveWorks Start
+		if (bUseWaveWorks)
+			OutEnvironment.SetDefine(TEXT("WITH_GFSDK_WAVEWORKS"), TEXT("1"));
+// WaveWorks End
 
 		if (bNeedsWorldPositionExcludingShaderOffsets)
 		{
@@ -2641,6 +2654,38 @@ protected:
 		return AddInlinedCodeChunk(MCT_Float3,TEXT("Parameters.CameraVector"));
 	}
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	// So we can tell if the current render pass is voxelizing or not inside the material graph.
+	// Typically this node is connected as the input of a switch or branch node to select different sub-parts of the material graph
+	virtual int32 VxgiVoxelization() override
+	{
+		return AddCodeChunk(MCT_Float, TEXT("GetVxgiVoxelizationActive()"));
+	}
+
+	virtual int32 VxgiTraceCone(int32 PositionArg, int32 DirectionArg, int32 ConeFactorArg, int32 InitialOffsetArg, int32 TracingStepArg, int32 MaxSamples) override
+	{
+		if (ShaderFrequency != SF_Pixel)
+		{
+			return NonPixelShaderExpressionError();
+		}
+
+		if (PositionArg == INDEX_NONE || DirectionArg == INDEX_NONE || ConeFactorArg == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
+		return AddCodeChunk(MCT_Float3, TEXT("VxgiTraceConeWrapper(%s, %s, %s, %s, %s, %d)"),
+			*GetParameterCode(PositionArg),
+			*GetParameterCode(DirectionArg),
+			*GetParameterCode(ConeFactorArg),
+			*GetParameterCode(InitialOffsetArg),
+			*GetParameterCode(TracingStepArg),
+			MaxSamples);
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	virtual int32 LightVector() override
 	{
 		if (ShaderFrequency != SF_Pixel && ShaderFrequency != SF_Compute)
@@ -2831,6 +2876,33 @@ protected:
 		}
 		bNeedsParticleSize = true;
 		return AddInlinedCodeChunk(MCT_Float2,TEXT("Parameters.Particle.Size"));
+	}
+
+	virtual int32 FlexFluidSurfaceThickness(int32 Offset, int32 UV, bool bUseOffset) override
+	{
+		if (Offset == INDEX_NONE && bUseOffset)
+		{
+			return INDEX_NONE;
+		}
+
+		if (ShaderFrequency != SF_Pixel)
+		{
+			return NonPixelShaderExpressionError();
+		}
+
+		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+
+		MaterialCompilationOutput.bRequiresSceneColorCopy = true;
+
+		int32 ScreenUVCode = GetScreenAlignedUV(Offset, UV, bUseOffset);
+		return AddCodeChunk(
+			MCT_Float,
+			TEXT("CalcFlexFluidSurfaceThicknessForMaterialNode(%s)"),
+			*GetParameterCode(ScreenUVCode)
+			);
 	}
 
 	virtual int32 WorldPosition(EWorldPositionIncludedOffsets WorldPositionIncludedOffsets) override
@@ -4202,6 +4274,7 @@ protected:
 		}
 
 		return AddCodeChunk(ResultType,TEXT("lerp(%s,%s,%s)"),*CoerceParameter(X,ResultType),*CoerceParameter(Y,ResultType),*CoerceParameter(A,AlphaType));
+
 	}
 
 	virtual int32 Min(int32 A,int32 B) override
@@ -5114,6 +5187,7 @@ protected:
 		FString ImplementationCode = FString::Printf(TEXT("%s CustomExpression%d(FMaterial%sParameters Parameters%s)\r\n{\r\n%s\r\n}\r\n"), *OutputTypeString, CustomExpressionIndex, *ParametersType, *InputParamDecl, *Code);
 		CustomExpressionImplementations.Add( ImplementationCode );
 
+
 		// Add call to implementation function
 		FString CodeChunk = FString::Printf(TEXT("CustomExpression%d(Parameters"), CustomExpressionIndex);
 		for( int32 i = 0; i < CompiledInputs.Num(); i++ )
@@ -5295,6 +5369,7 @@ protected:
 	*
 	* @return	Code index
 	*/
+
 	virtual int32 SpeedTree(ESpeedTreeGeometryType GeometryType, ESpeedTreeWindType WindType, ESpeedTreeLODType LODType, float BillboardThreshold, bool bAccurateWindVelocities) override 
 	{ 
 		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
@@ -5356,6 +5431,26 @@ protected:
 
 		return AddInlinedCodeChunk(MCT_Float, TEXT("EyeAdaptationLookup()"));
 	}
+
+// WaveWorks Start
+	virtual int32 WaveWorks(FString OutputName) override
+	{
+		if (Material->GetTessellationMode() != MTM_NoTessellation && GetFeatureLevel() >= ERHIFeatureLevel::SM5)
+		{
+			if (ShaderFrequency != SF_Domain && ShaderFrequency != SF_Pixel)
+				return Errorf(TEXT("Invalid node used in pixel/hull shader input!"));
+		}
+		else
+		{
+			if (ShaderFrequency != SF_Vertex && ShaderFrequency != SF_Pixel)
+				return Errorf(TEXT("Invalid node used in vertex/pixel shader input!"));
+		}
+
+		this->bUseWaveWorks = true;
+
+		return AddCodeChunk(MCT_Float3, TEXT("WaveWorks%s(Parameters);"), *OutputName);
+	}
+// WaveWorks End
 
 	// to only have one piece of code dealing with error handling if the Primitive constant buffer is not used.
 	// @param Name e.g. TEXT("ObjectWorldPositionAndRadius.w")

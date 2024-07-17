@@ -47,6 +47,17 @@ DECLARE_LOG_CATEGORY_EXTERN(LogD3D12RHI, Log, All);
 
 #include "D3D12Residency.h"
 
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+#include "GFSDK_VXGI.h"
+#include "D3D12NvRHI.h"
+#endif
+// NVCHANGE_END: Add VXGI
+
+#include "AllowWindowsPlatformTypes.h"
+#include "dxgi1_4.h"
+#include "HideWindowsPlatformTypes.h"
+
 // D3D RHI public headers.
 #include "../Public/D3D12Util.h"
 #include "../Public/D3D12State.h"
@@ -364,6 +375,25 @@ public:
 	virtual FTextureCubeRHIRef RHICreateTextureCubeArray_RenderThread(class FRHICommandListImmediate& RHICmdList, uint32 Size, uint32 ArraySize, uint8 Format, uint32 NumMips, uint32 Flags, FRHIResourceCreateInfo& CreateInfo);
 	virtual FRenderQueryRHIRef RHICreateRenderQuery_RenderThread(class FRHICommandListImmediate& RHICmdList, ERenderQueryType QueryType);
 
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+	// DX12 TODO
+	#if WITH_NVVOLUMETRICLIGHTING
+	virtual void ClearStateCache() final override {}
+	virtual bool GetPlatformDesc(NvVl::PlatformDesc& PlatformDesc) final override { return false; }
+	virtual void GetPlatformRenderCtx(NvVl::PlatformRenderCtx& PlatformRenderCtx) final override {}
+	virtual void GetPlatformShaderResource(FTextureRHIParamRef TextureRHI, NvVl::PlatformShaderResource& PlatformShaderResource) final override {}
+	virtual void GetPlatformRenderTarget(FTextureRHIParamRef TextureRHI, NvVl::PlatformRenderTarget& PlatformRenderTarget) final override {}
+	#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
+
+
+
+
+
+
+
 	virtual void RHISwitchToAFRIfApplicable();
 
 	template<class BufferType>
@@ -401,6 +431,32 @@ public:
 	void EndUpdateTexture3D_Internal(FUpdateTexture3DData& UpdateData);
 
 	void UpdateBuffer(FD3D12Resource* Dest, uint32 DestOffset, FD3D12Resource* Source, uint32 SourceOffset, uint32 NumBytes);
+
+	// NVCHANGE_BEGIN: Add VXGI
+private:
+	// These extensions can potentially be used for other purposes, not just VXGI.
+	TArray<const void*> NvidiaShaderExtensions;
+public:
+#if WITH_GFSDK_VXGI
+	NVRHI::FRendererInterfaceD3D12* VxgiRendererD3D12;
+	virtual VXGI::IGlobalIllumination* RHIVXGIGetInterface() final override;
+	virtual void RHIVXGISetVoxelizationParameters(const VXGI::VoxelizationParameters& Parameters) final override;
+	virtual void RHIVXGISetPixelShaderResourceAttributes(NVRHI::ShaderHandle PixelShader, const TArray<uint8>& ShaderResourceTable, bool bUsesGlobalCB) final override;
+	virtual void RHIVXGIApplyDrawStateOverrideShaders(const NVRHI::DrawCallState& DrawCallState, const FBoundShaderStateInput* BoundShaderStateInput, EPrimitiveType PrimitiveTypeOverride) final override;
+	virtual void RHIVXGIApplyShaderResources(const NVRHI::DrawCallState& DrawCallState) final override;
+	virtual void RHIVXGISetCommandList(FRHICommandList* RHICommandList) final override;
+	virtual FRHITexture* GetRHITextureFromVXGI(NVRHI::TextureHandle texture) final override;
+	virtual NVRHI::TextureHandle GetVXGITextureFromRHI(FRHITexture* texture) final override;
+	virtual bool RHISetExtensionsForNextShader(const void* const* Extensions, uint32 NumExtensions) final override;
+private:
+	VXGI::IGlobalIllumination* VxgiInterface;
+	VXGI::VoxelizationParameters VxgiVoxelizationParameters;
+	bool bVxgiVoxelizationParametersSet;
+	void CreateVxgiInterface();
+	void ReleaseVxgiInterface();
+public:
+#endif
+	// NVCHANGE_END: Add VXGI
 
 #if UE_BUILD_DEBUG	
 	uint32 SubmissionLockStalls;
@@ -737,6 +793,22 @@ public:
 				hCommandList.AddTransitionBarrier(pResource, before, after, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES);
 				ResourceState.SetResourceState(after);
 			}
+			// NVCHANGE_BEGIN: Add VXGI
+			else if (before == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && after == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+			{
+				if (pResource->RequestUAVBarrier())
+				{
+					D3D12_RESOURCE_BARRIER desc = {};
+					desc.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+					desc.UAV.pResource = pResource->GetResource();
+
+					// Skipping the call to LogResourceBarriers because it doesn't understand UAV barriers.
+
+					hCommandList.GetCurrentOwningContext()->numBarriers++;
+					hCommandList->ResourceBarrier(1, &desc);
+				}
+			}
+			// NVCHANGE_END: Add VXGI
 		}
 		else
 		{

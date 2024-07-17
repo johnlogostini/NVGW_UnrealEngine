@@ -490,12 +490,12 @@ template <EShaderFrequency ShaderFrequency>
 		{
 			switch (ShaderFrequency)
 			{
-			case SF_Vertex:		Direct3DDeviceIMContext1->VSGetConstantBuffers(StartSlot, NumBuffers, ConstantBuffers); break;
-			case SF_Hull:		Direct3DDeviceIMContext1->HSGetConstantBuffers(StartSlot, NumBuffers, ConstantBuffers); break;
-			case SF_Domain:		Direct3DDeviceIMContext1->DSGetConstantBuffers(StartSlot, NumBuffers, ConstantBuffers); break;
-			case SF_Geometry:	Direct3DDeviceIMContext1->GSGetConstantBuffers(StartSlot, NumBuffers, ConstantBuffers); break;
-			case SF_Pixel:		Direct3DDeviceIMContext1->PSGetConstantBuffers(StartSlot, NumBuffers, ConstantBuffers); break;
-			case SF_Compute:	Direct3DDeviceIMContext1->CSGetConstantBuffers(StartSlot, NumBuffers, ConstantBuffers); break;
+			case SF_Vertex:		Direct3DDeviceIMContext->VSGetConstantBuffers(StartSlotIndex, NumBuffers, ConstantBuffers); break;
+			case SF_Hull:		Direct3DDeviceIMContext->HSGetConstantBuffers(StartSlotIndex, NumBuffers, ConstantBuffers); break;
+			case SF_Domain:		Direct3DDeviceIMContext->DSGetConstantBuffers(StartSlotIndex, NumBuffers, ConstantBuffers); break;
+			case SF_Geometry:	Direct3DDeviceIMContext->GSGetConstantBuffers(StartSlotIndex, NumBuffers, ConstantBuffers); break;
+			case SF_Pixel:		Direct3DDeviceIMContext->PSGetConstantBuffers(StartSlotIndex, NumBuffers, ConstantBuffers); break;
+			case SF_Compute:	Direct3DDeviceIMContext->CSGetConstantBuffers(StartSlotIndex, NumBuffers, ConstantBuffers); break;
 			}
 
 		}
@@ -577,6 +577,174 @@ template <EShaderFrequency ShaderFrequency>
 		Direct3DDeviceIMContext->OMGetBlendState(BlendState, BlendFactor, SampleMask);
 #endif
 	}
+
+// WaveWorks Start
+	D3D11_STATE_CACHE_INLINE void CacheWaveWorksShaderInput(const TArray<uint32>& ShaderInputMappings, const TArray<WaveWorksShaderInput>& ShaderInput)
+	{
+#if D3D11_ALLOW_STATE_CACHE
+		static const uint32 GFSDK_WaveWorks_UnusedShaderInputRegisterMapping = -1;
+		for (int i = 0; i < ShaderInputMappings.Num(); ++i)
+		{
+			uint32 SlotIndex = ShaderInputMappings[i];
+			if (SlotIndex == GFSDK_WaveWorks_UnusedShaderInputRegisterMapping)
+				continue;
+
+			EShaderFrequency Frequency = ShaderInput[i].Frequency;
+			switch (ShaderInput[i].Type)
+			{
+			case RRT_UniformBuffer:
+			{
+				ID3D11Buffer* ConstantBuffer = NULL;
+				switch (Frequency)
+				{
+				case SF_Vertex:
+				{
+					Direct3DDeviceIMContext->VSGetConstantBuffers(SlotIndex, 1, &ConstantBuffer);
+					SetConstantBuffer<SF_Vertex>(ConstantBuffer, SlotIndex);
+					break;
+				}
+				case SF_Hull:
+				{
+					Direct3DDeviceIMContext->HSGetConstantBuffers(SlotIndex, 1, &ConstantBuffer);
+					SetConstantBuffer<SF_Hull>(ConstantBuffer, SlotIndex);
+					break;
+				}
+				case SF_Domain:
+				{
+					Direct3DDeviceIMContext->DSGetConstantBuffers(SlotIndex, 1, &ConstantBuffer);
+					SetConstantBuffer<SF_Domain>(ConstantBuffer, SlotIndex);
+					break;
+				}
+				case SF_Geometry:
+				{
+					Direct3DDeviceIMContext->GSGetConstantBuffers(SlotIndex, 1, &ConstantBuffer);
+					SetConstantBuffer<SF_Geometry>(ConstantBuffer, SlotIndex);
+					break;
+				}
+				case SF_Pixel:
+				{
+					Direct3DDeviceIMContext->PSGetConstantBuffers(SlotIndex, 1, &ConstantBuffer); break;
+					SetConstantBuffer<SF_Pixel>(ConstantBuffer, SlotIndex);
+				}
+				case SF_Compute:
+				{
+					Direct3DDeviceIMContext->CSGetConstantBuffers(SlotIndex, 1, &ConstantBuffer); break;
+					SetConstantBuffer<SF_Compute>(ConstantBuffer, SlotIndex);
+				}
+				}
+
+				break;
+			}
+			case RRT_SamplerState:
+			{
+				ID3D11SamplerState* SamplerState = NULL;
+				switch (Frequency)
+				{
+				case SF_Vertex:
+				{
+					Direct3DDeviceIMContext->VSGetSamplers(SlotIndex, 1, &SamplerState);
+					SetSamplerState<SF_Vertex>(SamplerState, SlotIndex);
+					break;
+				}
+				case SF_Hull:
+				{
+					Direct3DDeviceIMContext->HSGetSamplers(SlotIndex, 1, &SamplerState);
+					SetSamplerState<SF_Hull>(SamplerState, SlotIndex);
+					break;
+				}
+				case SF_Domain:
+				{
+					Direct3DDeviceIMContext->DSGetSamplers(SlotIndex, 1, &SamplerState);
+					SetSamplerState<SF_Domain>(SamplerState, SlotIndex);
+					break;
+				}
+				case SF_Geometry:
+				{
+					Direct3DDeviceIMContext->GSGetSamplers(SlotIndex, 1, &SamplerState);
+					SetSamplerState<SF_Geometry>(SamplerState, SlotIndex);
+					break;
+				}
+				case SF_Pixel:
+				{
+					Direct3DDeviceIMContext->PSGetSamplers(SlotIndex, 1, &SamplerState);
+					SetSamplerState<SF_Pixel>(SamplerState, SlotIndex);
+					break;
+				}
+				case SF_Compute:
+				{
+					Direct3DDeviceIMContext->CSGetSamplers(SlotIndex, 1, &SamplerState);
+					SetSamplerState<SF_Compute>(SamplerState, SlotIndex);
+					break;
+				}
+				}
+
+				break;
+			}
+			case RRT_ShaderResourceView:
+			{
+				ID3D11ShaderResourceView* ResourceView = NULL;
+				switch (Frequency)
+				{
+				case SF_Vertex:
+				{
+					Direct3DDeviceIMContext->VSGetShaderResources(SlotIndex, 1, &ResourceView);
+					SetShaderResourceView<SF_Vertex>(ResourceView, SlotIndex);
+					break;
+				}
+				case SF_Hull:
+				{
+					Direct3DDeviceIMContext->HSGetShaderResources(SlotIndex, 1, &ResourceView);
+					SetShaderResourceView<SF_Hull>(ResourceView, SlotIndex);
+					break;
+				}
+				case SF_Domain:
+				{
+					Direct3DDeviceIMContext->DSGetShaderResources(SlotIndex, 1, &ResourceView);
+					SetShaderResourceView<SF_Domain>(ResourceView, SlotIndex);
+					break;
+				}
+				case SF_Geometry:
+				{
+					Direct3DDeviceIMContext->GSGetShaderResources(SlotIndex, 1, &ResourceView);
+					SetShaderResourceView<SF_Geometry>(ResourceView, SlotIndex);
+					break;
+				}
+				case SF_Pixel:
+				{
+					Direct3DDeviceIMContext->PSGetShaderResources(SlotIndex, 1, &ResourceView);
+					SetShaderResourceView<SF_Pixel>(ResourceView, SlotIndex);
+					break;
+				}
+				case SF_Compute:
+				{
+					Direct3DDeviceIMContext->CSGetShaderResources(SlotIndex, 1, &ResourceView);
+					SetShaderResourceView<SF_Compute>(ResourceView, SlotIndex);
+					break;
+				}
+				}
+
+				break;
+			}
+			}
+		}
+#endif	// D3D11_ALLOW_STATE_CACHE
+	}
+
+	D3D11_STATE_CACHE_INLINE void SetWaveWorksState(FWaveWorksRHIParamRef State, const FMatrix& ViewMatrix, const TArray<uint32>& ShaderInputMappings)
+	{
+#if D3D11_ALLOW_STATE_CACHE
+		D3D11_STATE_CACHE_VERIFY_PRE();
+
+		State->SetRenderState(ViewMatrix, ShaderInputMappings);
+		// Reflect state changes in cache. Unfortunately, this involves costly readback.
+		CacheWaveWorksShaderInput(ShaderInputMappings, *GDynamicRHI->RHIGetDefaultContext()->RHIGetWaveWorksShaderInput());
+
+		D3D11_STATE_CACHE_VERIFY_POST();
+#else
+		State->SetRenderState(ViewMatrix, ShaderInputMappings);
+#endif
+	}
+// WaveWorks End
 
 	D3D11_STATE_CACHE_INLINE void SetDepthStencilState(ID3D11DepthStencilState* State, uint32 RefStencil)
 	{
@@ -905,7 +1073,9 @@ public:
 	FD3D11StateCacheBase()
 		: Direct3DDeviceIMContext(nullptr)
 	{
+#if D3D11_ALLOW_STATE_CACHE
 		FMemory::Memzero(CurrentShaderResourceViews, sizeof(CurrentShaderResourceViews));
+#endif
 	}
 
 	void Init(ID3D11DeviceContext* InDeviceContext, bool bInAlwaysSetIndexBuffers = false )
@@ -934,6 +1104,14 @@ public:
 	 * sampler state, and viewports to NULL
 	 */
 	virtual void ClearState();
+
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	virtual void ClearCache();
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
+
 
 #if D3D11_ALLOW_STATE_CACHE && D3D11_STATE_CACHE_DEBUG
 protected:

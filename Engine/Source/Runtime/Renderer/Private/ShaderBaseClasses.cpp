@@ -74,6 +74,9 @@ FMaterialShader::FMaterialShader(const FMaterialShaderType::CompiledShaderInitia
 	SceneColorCopyTextureSampler.Bind(Initializer.ParameterMap, TEXT("SceneColorCopyTextureSampler"));
 	EyeAdaptation.Bind(Initializer.ParameterMap, TEXT("EyeAdaptation"));
 
+// WaveWorks Start
+	WaveWorksParameters.Bind(Initializer.ParameterMap, EShaderFrequency(Initializer.Target.Frequency));
+// WaveWorks End
 }
 
 FUniformBufferRHIParamRef FMaterialShader::GetParameterCollectionBuffer(const FGuid& Id, const FSceneInterface* SceneInterface) const
@@ -372,6 +375,21 @@ void FMaterialShader::SetParameters(
 	}
 }
 
+// WaveWorks Start
+/** Sets pixel parameters that are material specific but not FMeshBatch specific. */
+template< typename ShaderRHIParamRef >
+void FMaterialShader::SetWaveWorksParameters(
+	FRHICommandList& RHICmdList,
+	const ShaderRHIParamRef ShaderRHI,
+	const FSceneView& View,
+	class FWaveWorksResource* WaveWorksResource
+	)
+{
+	if (nullptr != WaveWorksResource)
+		WaveWorksParameters.Set(RHICmdList, this, ShaderRHI, View, WaveWorksResource);
+}
+// WaveWorks End
+
 // Doxygen struggles to parse these explicit specializations. Just ignore them for now.
 #if !UE_BUILD_DOCS
 
@@ -393,6 +411,22 @@ IMPLEMENT_MATERIAL_SHADER_SetParameters( FDomainShaderRHIParamRef );
 IMPLEMENT_MATERIAL_SHADER_SetParameters( FGeometryShaderRHIParamRef );
 IMPLEMENT_MATERIAL_SHADER_SetParameters( FPixelShaderRHIParamRef );
 IMPLEMENT_MATERIAL_SHADER_SetParameters( FComputeShaderRHIParamRef );
+
+// WaveWorks Start
+#define IMPLEMENT_MATERIAL_SHADER_SetWaveWorksParameters( ShaderRHIParamRef ) \
+	template RENDERER_API void FMaterialShader::SetWaveWorksParameters< ShaderRHIParamRef >( \
+		FRHICommandList& RHICmdList,					\
+		const ShaderRHIParamRef ShaderRHI,				\
+		const FSceneView& View,							\
+		class FWaveWorksResource* WaveWorksResource		\
+	);
+
+IMPLEMENT_MATERIAL_SHADER_SetWaveWorksParameters(FVertexShaderRHIParamRef);
+IMPLEMENT_MATERIAL_SHADER_SetWaveWorksParameters(FHullShaderRHIParamRef);
+IMPLEMENT_MATERIAL_SHADER_SetWaveWorksParameters(FDomainShaderRHIParamRef);
+IMPLEMENT_MATERIAL_SHADER_SetWaveWorksParameters(FGeometryShaderRHIParamRef);
+IMPLEMENT_MATERIAL_SHADER_SetWaveWorksParameters(FPixelShaderRHIParamRef);
+// WaveWorks End
 
 #endif
 
@@ -430,6 +464,10 @@ bool FMaterialShader::Serialize(FArchive& Ar)
 	Ar << PerFrameVectorExpressions;
 	Ar << PerFramePrevScalarExpressions;
 	Ar << PerFramePrevVectorExpressions;
+
+// WaveWorks Start
+	Ar << WaveWorksParameters;
+// WaveWorks End
 
 	return bShaderHasOutdatedParameters;
 }

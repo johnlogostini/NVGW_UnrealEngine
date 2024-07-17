@@ -18,6 +18,12 @@
 class FDistanceFieldAOParameters;
 class UStaticMeshComponent;
 
+// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+#include "GFSDK_VXGI.h"
+#endif
+// NVCHANGE_END: Add VXGI
+
 class FLightShaftsOutput
 {
 public:
@@ -265,6 +271,11 @@ private:
 	/** Renders the scene's translucency. */
 	void RenderTranslucency(FRHICommandListImmediate& RHICmdList, ETranslucencyPass::Type TranslucencyPass);
 
+	// WaveWorks Start
+	/** Renders the waveworks */
+	void RenderWaveWorks(FRHICommandListImmediate& RHICmdList);
+	// WaveWorks End
+
 	/** Renders the scene's light shafts */
 	void RenderLightShaftOcclusion(FRHICommandListImmediate& RHICmdList, FLightShaftsOutput& Output);
 
@@ -448,8 +459,16 @@ private:
 	bool ShouldPrepareForDistanceFieldAO() const;
 	bool ShouldPrepareForDFInsetIndirectShadow() const;
 
-	bool ShouldPrepareDistanceFieldScene() const;
-	bool ShouldPrepareGlobalDistanceField() const;
+	bool ShouldPrepareDistanceFieldScene(
+// NvFlow begin
+		bool bCustomShouldPrepare = false
+// NvFlow end
+	) const;
+	bool ShouldPrepareGlobalDistanceField(
+// NvFlow begin
+		bool bCustomShouldPrepare = false
+// NvFlow end
+	) const;
 
 	void UpdateGlobalDistanceFieldObjectBuffers(FRHICommandListImmediate& RHICmdList);
 
@@ -457,6 +476,20 @@ private:
 	void RenderViewTranslucencyParallel(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState, ETranslucencyPass::Type TranslucencyPass);
 
 	void CopySceneCaptureComponentToTarget(FRHICommandListImmediate& RHICmdList);
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	void NVVolumetricLightingBeginAccumulation(FRHICommandListImmediate& RHICmdList);
+	void NVVolumetricLightingRenderVolume(FRHICommandListImmediate& RHICmdList, const FLightSceneInfo* LightSceneInfo, const TArray<FProjectedShadowInfo*, SceneRenderingAllocator>& ShadowInfos);
+	void NVVolumetricLightingRenderVolume(FRHICommandListImmediate& RHICmdList, const FLightSceneInfo* LightSceneInfo, const FProjectedShadowInfo* ShadowInfo);
+	void NVVolumetricLightingRenderVolume(FRHICommandListImmediate& RHICmdList, const FLightSceneInfo* LightSceneInfo);
+	void NVVolumetricLightingEndAccumulation(FRHICommandListImmediate& RHICmdList);
+	void NVVolumetricLightingApplyLighting(FRHICommandListImmediate& RHICmdList);
+#endif
+	
+	// WaveWorks Start
+	void DrawAllWaveWorksPasses(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, const FDrawingPolicyRenderState& DrawRenderState);
+	// WaveWorks End
 
 	friend class FTranslucentPrimSet;
 };

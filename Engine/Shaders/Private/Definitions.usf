@@ -124,6 +124,16 @@
 #define TEX_COORD_SCALE_ANALYSIS						0
 #endif
 
+// WaveWorks Start
+#ifndef WITH_GFSDK_WAVEWORKS
+#define WITH_GFSDK_WAVEWORKS							0
+#endif
+
+#ifndef WITH_GFSDK_QUAD_TREE_WAVEWORKS
+#define WITH_GFSDK_QUAD_TREE_WAVEWORKS					0
+#endif
+// WaveWorks End
+
 #define ISOLATE
 #define NOEXPRESSIONOPTIMIZATIONS						
 

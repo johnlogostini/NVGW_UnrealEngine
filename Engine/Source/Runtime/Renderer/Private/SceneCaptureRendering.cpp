@@ -24,6 +24,9 @@
 #include "Components/SceneCaptureComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/SceneCaptureComponentCube.h"
+// WaveWorks Start
+#include "Components/WaveWorksShorelineCaptureComponent.h"
+// WaveWorks End
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/TextureRenderTargetCube.h"
 #include "PostProcess/SceneRenderTargets.h"
@@ -423,6 +426,11 @@ FSceneRenderer* CreateSceneRendererForSceneCapture(
 		View->bIsSceneCapture = true;
 		// Note: this has to be set before EndFinalPostprocessSettings
 		View->bIsPlanarReflection = bIsPlanarReflection;
+		// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+		View->bEnableVxgiForSceneCapture = SceneCaptureComponent->bEnableVxgi;
+#endif
+		// NVCHANGE_END: Add VXGI
 
 		check(SceneCaptureComponent);
 		for (auto It = SceneCaptureComponent->HiddenComponents.CreateConstIterator(); It; ++It)
@@ -626,6 +634,99 @@ void FScene::UpdateSceneCaptureContents(USceneCaptureComponent2D* CaptureCompone
 		);
 	}
 }
+
+// WaveWorks Start
+void FScene::UpdateSceneCaptureContents(UWaveWorksShorelineCaptureComponent* CaptureComponent)
+{
+	check(CaptureComponent);
+
+	if (CaptureComponent->TextureTarget)
+	{
+		// Only ensure motion blur cache is up to date when doing USceneCaptureComponent2D::CaptureScene(),
+		// but only when bAlwaysPersistRenderingState == true for backward compatibility.
+		if (!CaptureComponent->bCaptureEveryFrame && CaptureComponent->bAlwaysPersistRenderingState)
+		{
+			// We assume the world is not paused since the CaptureScene() has manually been called.
+			EnsureMotionBlurCacheIsUpToDate(/* bWorldIsPaused = */ false);
+		}
+
+		FTransform Transform = CaptureComponent->GetComponentToWorld();
+		FVector ViewLocation = Transform.GetTranslation();
+
+		// Remove the translation from Transform because we only need rotation.
+		Transform.SetTranslation(FVector::ZeroVector);
+		Transform.SetScale3D(FVector::OneVector);
+		FMatrix ViewRotationMatrix = Transform.ToInverseMatrixWithScale();
+
+		// swap axis st. x=z,y=x,z=y (unreal coord space) so that z is up
+		ViewRotationMatrix = ViewRotationMatrix * FMatrix(
+			FPlane(0, 0, 1, 0),
+			FPlane(1, 0, 0, 0),
+			FPlane(0, 1, 0, 0),
+			FPlane(0, 0, 0, 1));
+		const float FOV = CaptureComponent->FOVAngle * (float)PI / 360.0f;
+		FIntPoint CaptureSize(CaptureComponent->TextureTarget->GetSurfaceWidth(), CaptureComponent->TextureTarget->GetSurfaceHeight());
+
+		FMatrix ProjectionMatrix;
+		if (CaptureComponent->bUseCustomProjectionMatrix)
+		{
+			ProjectionMatrix = CaptureComponent->CustomProjectionMatrix;
+		}
+		else
+		{
+			BuildProjectionMatrix(CaptureSize, CaptureComponent->ProjectionType, FOV, CaptureComponent->OrthoWidth, ProjectionMatrix);
+		}
+
+		const bool bUseSceneColorTexture = true;
+
+		FSceneRenderer* SceneRenderer = CreateSceneRendererForSceneCapture(
+			this,
+			CaptureComponent,
+			CaptureComponent->TextureTarget->GameThread_GetRenderTargetResource(),
+			CaptureSize,
+			ViewRotationMatrix,
+			ViewLocation,
+			ProjectionMatrix,
+			CaptureComponent->MaxViewDistanceOverride,
+			bUseSceneColorTexture,
+			false,
+			&CaptureComponent->PostProcessSettings,
+			CaptureComponent->PostProcessBlendWeight,
+			CaptureComponent->GetViewOwner());
+
+		SceneRenderer->ViewFamily.SceneCaptureSource = CaptureComponent->CaptureSource;
+		SceneRenderer->ViewFamily.SceneCaptureCompositeMode = CaptureComponent->CompositeMode;
+
+		{
+			FPlane ClipPlane = FPlane(CaptureComponent->ClipPlaneBase, CaptureComponent->ClipPlaneNormal.GetSafeNormal());
+
+			for (FSceneView& View : SceneRenderer->Views)
+			{
+				View.bCameraCut = CaptureComponent->bCameraCutThisFrame;
+
+				if (CaptureComponent->bEnableClipPlane)
+				{
+					View.GlobalClippingPlane = ClipPlane;
+					// Jitter can't be removed completely due to the clipping plane
+					View.bAllowTemporalJitter = false;
+				}
+			}
+		}
+
+		// Reset scene capture's camera cut.
+		CaptureComponent->bCameraCutThisFrame = false;
+
+		FTextureRenderTargetResource* TextureRenderTarget = CaptureComponent->TextureTarget->GameThread_GetRenderTargetResource();
+		const FName OwnerName = CaptureComponent->GetOwner() ? CaptureComponent->GetOwner()->GetFName() : NAME_None;
+		ENQUEUE_RENDER_COMMAND(CaptureCommand)(
+			[SceneRenderer, TextureRenderTarget, OwnerName](FRHICommandListImmediate& RHICmdList)
+		{
+			UpdateSceneCaptureContent_RenderThread(RHICmdList, SceneRenderer, TextureRenderTarget, TextureRenderTarget, OwnerName, FResolveParams());
+		}
+		);
+	}
+}
+// WaveWorks End
 
 void FScene::UpdateSceneCaptureContents(USceneCaptureComponentCube* CaptureComponent)
 {

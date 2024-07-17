@@ -1592,7 +1592,9 @@ public:
 	/**
 	 * Computes the maximum number of bones per section used to render this mesh.
 	 */
-	int32 GetMaxBonesPerSection() const;
+//#nv begin #Blast Engine export
+	ENGINE_API int32 GetMaxBonesPerSection() const;
+//nv end
 
 	/** Returns true if this resource must be skinned on the CPU for the given feature level. */
 	bool RequiresCPUSkinning(ERHIFeatureLevel::Type FeatureLevel) const;
@@ -1619,6 +1621,74 @@ private:
 	/** True if the resource has been initialized. */
 	bool bInitialized;
 };
+
+//#nv begin #Blast Ability to hide bones using a dynamic index buffer
+struct FSkelMeshSectionOverride
+{
+	/** The offset of this section's indices in the LOD's index buffer. */
+	uint32 BaseIndex;
+
+	/** The number of triangles in this section. */
+	uint32 NumTriangles;
+
+	FSkelMeshSectionOverride()
+		: BaseIndex(0)
+		, NumTriangles(0)
+	{}
+};
+
+class ENGINE_API FDynamicLODModelOverride
+{
+public:
+	/** Sections. */
+	TArray<FSkelMeshSectionOverride> Sections;
+
+	// Index Buffer (MultiSize: 16bit or 32bit)
+	FMultiSizeIndexContainer	MultiSizeIndexContainer;
+
+	/** Resources needed to render the model using PN-AEN */
+	FMultiSizeIndexContainer	AdjacencyMultiSizeIndexContainer;
+	/**
+	* Initialize the LOD's render resources.
+	*
+	* @param Parent Parent mesh
+	*/
+	void InitResources(const FStaticLODModel& InitialData);
+
+	/**
+	* Releases the LOD's render resources.
+	*/
+	void ReleaseResources();
+
+	void GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize) const;
+	SIZE_T GetResourceSizeBytes() const;
+};
+
+class ENGINE_API FSkeletalMeshDynamicOverride
+{
+public:
+	/** Per-LOD render data. */
+	TIndirectArray<FDynamicLODModelOverride> LODModels;
+
+	/** Default constructor. */
+	FSkeletalMeshDynamicOverride() : bInitialized(false) {}
+
+	/** Initializes rendering resources. */
+	void InitResources(const FSkeletalMeshResource& InitialData);
+
+	/** Releases rendering resources. */
+	void ReleaseResources();
+
+	void GetResourceSizeEx(FResourceSizeEx& CumulativeResourceSize);
+	SIZE_T GetResourceSizeBytes();
+
+	inline bool IsInitialized() const { return bInitialized; }
+
+private:
+	/** True if the resource has been initialized. */
+	bool bInitialized;
+};
+//nv end
 
 /**
  *	Contains the vertices that are most dominated by that bone. Vertices are in Bone space.
@@ -1681,7 +1751,9 @@ public:
 	/** 
 	 * Render physics asset for debug display
 	 */
-	void DebugDrawPhysicsAsset(int32 ViewIndex, FMeshElementCollector& Collector, const FEngineShowFlags& EngineShowFlags) const;
+//#nv begin #Blast Made virtual
+	virtual void DebugDrawPhysicsAsset(int32 ViewIndex, FMeshElementCollector& Collector, const FEngineShowFlags& EngineShowFlags) const;
+//nv end
 
 	/** Render the bones of the skeleton for debug display */
 	void DebugDrawSkeleton(int32 ViewIndex, FMeshElementCollector& Collector, const FEngineShowFlags& EngineShowFlags) const;

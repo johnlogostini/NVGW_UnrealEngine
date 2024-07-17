@@ -121,6 +121,12 @@ public:
 	virtual int32 ReflectionVector() = 0;
 	virtual int32 ReflectionAboutCustomWorldNormal(int32 CustomWorldNormal, int32 bNormalizeCustomWorldNormal) = 0;
 	virtual int32 CameraVector() = 0;
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	virtual int32 VxgiVoxelization() = 0;
+	virtual int32 VxgiTraceCone(int32 PositionArg, int32 DirectionArg, int32 ConeFactorArg, int32 InitialOffsetArg, int32 TracingStepArg, int32 MaxSamples) = 0;
+#endif
+	// NVCHANGE_END: Add VXGI
 	virtual int32 LightVector() = 0;
 
 	virtual int32 ScreenPosition(EMaterialExpressionScreenPositionMapping Mapping) = 0;
@@ -142,6 +148,8 @@ public:
 	virtual int32 ParticleDirection() = 0;
 	virtual int32 ParticleSpeed() = 0;
 	virtual int32 ParticleSize() = 0;
+
+	virtual int32 FlexFluidSurfaceThickness(int32 Offset, int32 UV, bool bUseOffset) = 0;
 
 	virtual int32 If(int32 A,int32 B,int32 AGreaterThanB,int32 AEqualsB,int32 ALessThanB,int32 Threshold) = 0;
 
@@ -284,6 +292,10 @@ public:
 	// The compiler can run in a different state and this affects caching of sub expression, Expressions are different (e.g. View.PrevWorldViewOrigin) when using previous frame's values
 	// If possible we should re-factor this to avoid having to deal with compiler state
 	virtual bool IsCurrentlyCompilingForPreviousFrame() const { return false; }
+
+// WaveWorks Start
+	virtual int32 WaveWorks(FString OutputName) = 0;
+// WaveWorks End
 };
 
 /** 
@@ -366,6 +378,14 @@ public:
 	virtual int32 LightVector() override { return Compiler->LightVector(); }
 
 	virtual int32 ScreenPosition(EMaterialExpressionScreenPositionMapping Mapping = MESP_SceneTextureUV) override { return Compiler->ScreenPosition(Mapping); }
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	virtual int32 VxgiVoxelization() override { return Compiler->VxgiVoxelization(); }
+	virtual int32 VxgiTraceCone(int32 PositionArg, int32 DirectionArg, int32 ConeFactorArg, int32 InitialOffsetArg, int32 TracingStepArg, int32 MaxSamples) override { return Compiler->VxgiTraceCone(PositionArg, DirectionArg, ConeFactorArg, InitialOffsetArg, TracingStepArg, MaxSamples); }
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	virtual int32 WorldPosition(EWorldPositionIncludedOffsets WorldPositionIncludedOffsets) override { return Compiler->WorldPosition(WorldPositionIncludedOffsets); }
 	virtual int32 ObjectWorldPosition() override { return Compiler->ObjectWorldPosition(); }
 	virtual int32 ObjectRadius() override { return Compiler->ObjectRadius(); }
@@ -378,6 +398,8 @@ public:
 	virtual int32 ParticlePosition() override { return Compiler->ParticlePosition(); }
 	virtual int32 ParticleRadius() override { return Compiler->ParticleRadius(); }
 	virtual int32 SphericalParticleOpacity(int32 Density) override { return Compiler->SphericalParticleOpacity(Density); }
+
+	virtual int32 FlexFluidSurfaceThickness(int32 Offset, int32 UV, bool bUseOffset) override { return Compiler->FlexFluidSurfaceThickness(Offset, UV, bUseOffset); }
 
 	virtual int32 If(int32 A,int32 B,int32 AGreaterThanB,int32 AEqualsB,int32 ALessThanB,int32 Threshold) override { return Compiler->If(A,B,AGreaterThanB,AEqualsB,ALessThanB,Threshold); }
 
@@ -531,6 +553,13 @@ public:
 	{
 		return Compiler->EyeAdaptation();
 	}
+
+	// WaveWorks Start
+	virtual int32 WaveWorks(FString OutputName)
+	{
+		return Compiler->WaveWorks(OutputName);
+	}
+	// WaveWorks End
 
 protected:
 		

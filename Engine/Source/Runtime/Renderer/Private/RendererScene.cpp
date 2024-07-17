@@ -154,6 +154,12 @@ FSceneViewState::FSceneViewState()
 	SmoothedHalfResTranslucencyGPUDuration = 0;
 	SmoothedFullResTranslucencyGPUDuration = 0;
 	bShouldAutoDownsampleTranslucency = false;
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	ViewTracer = NULL;
+#endif
+	// NVCHANGE_END: Add VXGI
 }
 
 void DestroyRenderResource(FRenderResource* RenderResource)
@@ -410,6 +416,22 @@ void FScene::UpdateSceneSettings(AWorldSettings* WorldSettings)
 	});
 }
 
+
+// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+void FScene::UpdateVolumetricLightingSettings(AWorldSettings* WorldSettings)
+{
+	ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(
+		UpdateVolumetricLightingSettings,
+		FScene*, Scene, this,
+		FNVVolumetricLightingProperties, VolumetricLightingProperties, WorldSettings->VolumetricLightingProperties,
+		{
+			*Scene->VolumetricLightingProperties = VolumetricLightingProperties;
+		});
+}
+#endif
+// NVCHANGE_END: Nvidia Volumetric Lighting
+
 /**
  * Sets the FX system associated with the scene.
  */
@@ -663,6 +685,13 @@ FScene::FScene(UWorld* InWorld, bool bInRequiresHitProxies, bool bInIsEditorScen
 	}
 
 	World->UpdateParameterCollectionInstances(false);
+
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	VolumetricLightingProperties = new FNVVolumetricLightingProperties(InWorld->GetWorldSettings()->VolumetricLightingProperties);
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 }
 
 FScene::~FScene()
@@ -677,6 +706,13 @@ FScene::~FScene()
 		}
 	}
 #endif
+
+	// NVCHANGE_BEGIN: Nvidia Volumetric Lighting
+#if WITH_NVVOLUMETRICLIGHTING
+	delete VolumetricLightingProperties;
+	VolumetricLightingProperties = nullptr;
+#endif
+	// NVCHANGE_END: Nvidia Volumetric Lighting
 
 	ReflectionSceneData.CubemapArray.ReleaseResource();
 	IndirectLightingCache.ReleaseResource();
@@ -2440,6 +2476,12 @@ void FScene::UpdateStaticDrawListsForMaterials_RenderThread(FRHICommandListImmed
 		}
 	}
 
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	VxgiVoxelizationDrawList.GetUsedPrimitivesBasedOnMaterials(SceneFeatureLevel, Materials, PrimitivesToUpdate);
+#endif
+	// NVCHANGE_END: Add VXGI
+
 	PositionOnlyDepthDrawList.GetUsedPrimitivesBasedOnMaterials(SceneFeatureLevel, Materials, PrimitivesToUpdate);
 	DepthDrawList.GetUsedPrimitivesBasedOnMaterials(SceneFeatureLevel, Materials, PrimitivesToUpdate);
 	MaskedDepthDrawList.GetUsedPrimitivesBasedOnMaterials(SceneFeatureLevel, Materials, PrimitivesToUpdate);
@@ -2676,6 +2718,11 @@ void FScene::DumpStaticMeshDrawListStats() const
 	DUMP_DRAW_LIST(MobileBasePassUniformLightMapPolicyDrawList[EBasePass_Masked]);
 	DUMP_DRAW_LIST(MobileBasePassUniformLightMapPolicyDrawListWithCSM[EBasePass_Default]);
 	DUMP_DRAW_LIST(MobileBasePassUniformLightMapPolicyDrawListWithCSM[EBasePass_Masked]);
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	DUMP_DRAW_LIST(VxgiVoxelizationDrawList);
+#endif
+	// NVCHANGE_END: Add VXGI
 	DUMP_DRAW_LIST(HitProxyDrawList);
 	DUMP_DRAW_LIST(HitProxyDrawList_OpaqueOnly);
 #if WITH_EDITOR
@@ -2843,6 +2890,12 @@ void FScene::ApplyWorldOffset_RenderThread(FVector InOffset)
 	StaticMeshDrawListApplyWorldOffset(WholeSceneShadowDepthDrawList, InOffset);
 	StaticMeshDrawListApplyWorldOffset(MobileBasePassUniformLightMapPolicyDrawList, InOffset);
 	StaticMeshDrawListApplyWorldOffset(MobileBasePassUniformLightMapPolicyDrawListWithCSM, InOffset);
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	StaticMeshDrawListApplyWorldOffset(VxgiVoxelizationDrawList, InOffset);
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	// Motion blur 
 	MotionBlurInfoData.ApplyOffset(InOffset);

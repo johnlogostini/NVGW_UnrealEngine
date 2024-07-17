@@ -56,7 +56,14 @@ struct FFlatTessellationHSToDS
 		O.TessFactor[1] = 1.0f; // 2->0 edge
 		O.TessFactor[2] = 1.0f; // 0->1 edge
 		O.InsideTessFactor = 1.0f;
+// WaveWorks Start
+#elif WITH_GFSDK_QUAD_TREE_WAVEWORKS
+		O.TessFactor[0] = GFSDK_WaveWorks_GetEdgeTessellationFactor(I[1].PassSpecificData.Position, I[2].PassSpecificData.Position);
+		O.TessFactor[1] = GFSDK_WaveWorks_GetEdgeTessellationFactor(I[2].PassSpecificData.Position, I[0].PassSpecificData.Position);
+		O.TessFactor[2] = GFSDK_WaveWorks_GetEdgeTessellationFactor(I[0].PassSpecificData.Position, I[1].PassSpecificData.Position);
+		O.InsideTessFactor = (O.TessFactor[0] + O.TessFactor[1] + O.TessFactor[2]) / 3.0f;
 #else // #if DISABLE_TESSELLATION_OVERRIDE
+// WaveWorks End
 		float3 WorldPostion0 = I[0].PassSpecificData.Position.xyz;
 		float3 WorldPostion1 = I[1].PassSpecificData.Position.xyz;
 		float3 WorldPostion2 = I[2].PassSpecificData.Position.xyz;
@@ -125,6 +132,37 @@ struct FFlatTessellationHSToDS
 #endif
 
 #if DOMAINSHADER
+
+// WaveWorks Start
+#if WITH_GFSDK_WAVEWORKS
+	// Performs WaveWorks specific interpolation
+	FPassSpecificVSToDS PassWaveWorksInterpolate(
+		FPassSpecificVSToDS Interpolants, 
+		float4 nv_waveworks_attr36, 
+		float4 nv_waveworks_attr37, 
+		float4 nv_waveworks_attr38, 
+		float3 nv_waveworks_attr39,
+		float3 world_pos_undisplaced,
+		float2 gerstner_sdfUV,
+		float  gerstner_multiplier,
+		float  distanceToShoreline)
+	{
+		FPassSpecificVSToDS Output = Interpolants;
+
+		Output.FactoryInterpolants.InterpolantsVSToPS.nv_waveworks_attr36 = nv_waveworks_attr36;
+		Output.FactoryInterpolants.InterpolantsVSToPS.nv_waveworks_attr37 = nv_waveworks_attr37;
+		Output.FactoryInterpolants.InterpolantsVSToPS.nv_waveworks_attr38 = nv_waveworks_attr38;
+		Output.FactoryInterpolants.InterpolantsVSToPS.nv_waveworks_attr39 = nv_waveworks_attr39;
+		Output.FactoryInterpolants.InterpolantsVSToPS.world_pos_undisplaced = world_pos_undisplaced;
+		Output.FactoryInterpolants.InterpolantsVSToPS.gerstner_sdfUV = gerstner_sdfUV;
+		Output.FactoryInterpolants.InterpolantsVSToPS.gerstner_multiplier = gerstner_multiplier;
+		Output.FactoryInterpolants.InterpolantsVSToPS.distanceToShoreline = distanceToShoreline;
+
+		return Output;
+	}
+#endif
+// WaveWorks End
+
 	[domain("tri")]
 	TESSELLATION_ATTRIBUTES
 	FPassSpecificVSToPS MainDomain(
@@ -167,10 +205,50 @@ struct FFlatTessellationHSToDS
 		Interp.FactoryInterpolants.InterpolantsVSToPS.PackedEyeIndex = I[0].PassSpecificData.FactoryInterpolants.InterpolantsVSToPS.PackedEyeIndex;
 		#endif
 																		
+
+// WaveWorks Start
+#if WITH_GFSDK_WAVEWORKS
+		// Get displaced position and send to Vertex Factory for storing
+#if WITH_GFSDK_QUAD_TREE_WAVEWORKS
+		GFSDK_WAVEWORKS_VERTEX_OUTPUT NV_ocean = GFSDK_WaveWorks_GetDisplacedVertexAfterTessellation(WorldPosition.xyz / 100.0);		
+#else
+		GFSDK_WAVEWORKS_VERTEX_OUTPUT NV_ocean = GFSDK_WaveWorks_GetDisplacedVertex((WorldPosition.xyz - View.PreViewTranslation.xyz) / 100.0);
+#endif
+		float3 gerstnerDisplacement = float3(0, 0, 0);
+		float2 gerstnerSdfUV = float2(0, 0);
+		float  gerstnerMultiplier = 0;
+		float  distanceToShoreline = 1;
+
+		if (WaveWorksShorelineParameters.bUseShoreline)
+		{
+			GFSDK_WaveWorks_GetGerstnerVertexAttributes(NV_ocean.pos_world_undisplaced.xyz, gerstnerSdfUV, gerstnerDisplacement, gerstnerMultiplier, distanceToShoreline);
+			gerstnerDisplacement *= 100;	// unit from 'm' to 'cm'
+		}
+		NV_ocean.world_displacement *= 1.0 - 0.7 * gerstnerMultiplier;
+		NV_ocean.world_displacement += gerstnerDisplacement.xyz * gerstnerMultiplier * clamp(distanceToShoreline + 0.3,0,1);
+		NV_ocean.pos_world = NV_ocean.pos_world_undisplaced + NV_ocean.world_displacement;
+
+		Interp = PassWaveWorksInterpolate(Interp, 
+			NV_ocean.interp.nv_waveworks_attr36, NV_ocean.interp.nv_waveworks_attr37,
+			NV_ocean.interp.nv_waveworks_attr38, NV_ocean.interp.nv_waveworks_attr39, 
+			NV_ocean.pos_world_undisplaced,gerstnerSdfUV, gerstnerMultiplier, distanceToShoreline);
+
+		WorldPosition.xyz = NV_ocean.pos_world_undisplaced + View.PreViewTranslation.xyz;
+#endif
+// WaveWorks End
+
 		FMaterialTessellationParameters MaterialParameters = GetMaterialTessellationParameters(Interp.FactoryInterpolants, WorldPosition.xyz);
 
-#if DISPLACEMENT_ANTICRACK
+// WaveWorks Start
+#if WITH_GFSDK_WAVEWORKS
+		// Store the actual displacement value for use in the material editor
+		MaterialParameters.WaveWorksDisplacement = NV_ocean.world_displacement;
+#endif
+// WaveWorks End
 
+// WaveWorks Start
+#if DISPLACEMENT_ANTICRACK && !WITH_GFSDK_WAVEWORKS
+// WaveWorks End
 		float2 DisplacementTexCoords = 0;
 #if NUM_MATERIAL_TEXCOORDS
 		DisplacementTexCoords = GetTextureCoordinateDS( Interp );

@@ -121,6 +121,9 @@ extern ENGINE_API TArray<PxHeightField*>	GPhysXPendingKillHeightfield;
 /** Array of PxMaterial objects which are awaiting cleaning up. */
 extern TArray<PxMaterial*>		GPhysXPendingKillMaterial;
 
+#if WITH_FLEX
+extern ENGINE_API NvFlexLibrary*				GFlexLib;
+#endif
 
 #if WITH_PHYSX
 extern const physx::PxQuat U2PSphylBasis;
@@ -135,7 +138,10 @@ public:
 	static void Terminate();
 
 	void Add(PxBase* Obj);
-	void Remove(PxBase* Obj)	{ if(Obj) { SharedObjects->remove(*Obj); } }
+//#nv begin #Blast Multiple UBodySetup handling
+	//Check for contains first due to multiple UBodySetups sharing the same ref counted object causing harmless double-frees
+	void Remove(PxBase* Obj)	{ if(Obj && SharedObjects->contains(*Obj)) { SharedObjects->remove(*Obj); } }
+//nv end
 
 	const PxCollection* GetCollection()	{ return SharedObjects; }
 

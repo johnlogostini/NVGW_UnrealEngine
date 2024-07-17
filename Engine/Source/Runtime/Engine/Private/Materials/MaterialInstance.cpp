@@ -1564,6 +1564,11 @@ void UMaterialInstance::UpdateOverridableBaseProperties()
 		ShadingModel = MSM_DefaultLit;
 		TwoSided = 0;
 		DitheredLODTransition = 0;
+		// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+		VxgiMaterialProperties = FVxgiMaterialProperties();
+#endif
+		// NVCHANGE_END: Add VXGI
 		return;
 	}
 
@@ -1620,6 +1625,56 @@ void UMaterialInstance::UpdateOverridableBaseProperties()
 	{
 		DitheredLODTransition = Parent->IsDitheredLODTransition();
 	}
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	VxgiMaterialProperties = Parent->GetVxgiMaterialProperties();
+
+	if (BasePropertyOverrides.bOverride_VxgiConeTracingEnabled)
+	{
+		VxgiMaterialProperties.bVxgiConeTracingEnabled = BasePropertyOverrides.bVxgiConeTracingEnabled;
+	}
+
+	if (BasePropertyOverrides.bOverride_UsedWithVxgiVoxelization)
+	{
+		VxgiMaterialProperties.bUsedWithVxgiVoxelization = BasePropertyOverrides.bUsedWithVxgiVoxelization;
+	}
+
+	if (BasePropertyOverrides.bOverride_VxgiAllowTesselationDuringVoxelization)
+	{
+		VxgiMaterialProperties.bVxgiAllowTesselationDuringVoxelization = BasePropertyOverrides.bVxgiAllowTesselationDuringVoxelization;
+	}
+
+	if (BasePropertyOverrides.bOverride_VxgiOmniDirectional)
+	{
+		VxgiMaterialProperties.bVxgiOmniDirectional = BasePropertyOverrides.bVxgiOmniDirectional;
+	}
+
+	if (BasePropertyOverrides.bOverride_VxgiProportionalEmittance)
+	{
+		VxgiMaterialProperties.bVxgiProportionalEmittance = BasePropertyOverrides.bVxgiProportionalEmittance;
+	}
+
+	if (BasePropertyOverrides.bOverride_VxgiCoverageSupersampling)
+	{
+		VxgiMaterialProperties.bVxgiCoverageSupersampling = BasePropertyOverrides.bVxgiCoverageSupersampling;
+	}
+
+	if (BasePropertyOverrides.bOverride_VxgiMaterialSamplingRate)
+	{
+		VxgiMaterialProperties.VxgiMaterialSamplingRate = BasePropertyOverrides.VxgiMaterialSamplingRate;
+	}
+
+	if (BasePropertyOverrides.bOverride_VxgiOpacityNoiseScaleBias)
+	{
+		VxgiMaterialProperties.VxgiOpacityNoiseScaleBias = BasePropertyOverrides.VxgiOpacityNoiseScaleBias;
+	}
+
+	if (BasePropertyOverrides.bOverride_VxgiVoxelizationThickness)
+	{
+		VxgiMaterialProperties.VxgiVoxelizationThickness = BasePropertyOverrides.VxgiVoxelizationThickness;
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 }
 
 void UMaterialInstance::GetAllShaderMaps(TArray<FMaterialShaderMap*>& OutShaderMaps)
@@ -2038,8 +2093,8 @@ void UMaterialInstance::PostLoad()
 
 	if (FApp::CanEverRender())
 	{
-		// Resources can be processed / registered now that we're back on the main thread
-		ProcessSerializedInlineShaderMaps(this, LoadedMaterialResources, StaticPermutationMaterialResources);
+	// Resources can be processed / registered now that we're back on the main thread
+	ProcessSerializedInlineShaderMaps(this, LoadedMaterialResources, StaticPermutationMaterialResources);
 	}
 	else
 	{
@@ -2370,10 +2425,10 @@ void UMaterialInstance::SetTextureParameterValueInternal(FName ParameterName, UT
 		// set as an ensure, because it is somehow possible to accidentally pass non-textures into here via blueprints...
 		if (Value && ensureMsgf(Value->IsA(UTexture::StaticClass()), TEXT("Expecting a UTexture! Value='%s' class='%s'"), *Value->GetName(), *Value->GetClass()->GetName()))
 		{
-			ParameterValue->ParameterValue = Value;
-			// Update the material instance data in the rendering thread.
-			GameThread_UpdateMIParameter(this, *ParameterValue);
-			CacheMaterialInstanceUniformExpressions(this);
+		ParameterValue->ParameterValue = Value;
+		// Update the material instance data in the rendering thread.
+		GameThread_UpdateMIParameter(this, *ParameterValue);
+		CacheMaterialInstanceUniformExpressions(this);
 		}		
 	}
 }
@@ -2778,20 +2833,20 @@ void UMaterialInstance::GetBasePropertyOverridesHash(FSHAHash& OutHash)const
 		Hash.UpdateWithString(*HashString, HashString.Len());
 		Hash.Update((const uint8*)&UsedBlendMode, sizeof(UsedBlendMode));
 		bHasOverrides = true;
-	}
+ 	}
 	
 	EMaterialShadingModel UsedShadingModel = GetShadingModel();
-	if (UsedShadingModel != Mat->GetShadingModel())
-	{
+ 	if (UsedShadingModel != Mat->GetShadingModel())
+ 	{
 		const FString HashString = TEXT("bOverride_ShadingModel");
 		Hash.UpdateWithString(*HashString, HashString.Len());
 		Hash.Update((const uint8*)&UsedShadingModel, sizeof(UsedShadingModel));
 		bHasOverrides = true;
 	}
 
-	bool bUsedIsTwoSided = IsTwoSided();
-	if (bUsedIsTwoSided != Mat->IsTwoSided())
-	{
+ 	bool bUsedIsTwoSided = IsTwoSided();
+ 	if (bUsedIsTwoSided != Mat->IsTwoSided())
+ 	{
 		const FString HashString = TEXT("bOverride_TwoSided");
 		Hash.UpdateWithString(*HashString, HashString.Len());
 		Hash.Update((uint8*)&bUsedIsTwoSided, sizeof(bUsedIsTwoSided));
@@ -2806,8 +2861,89 @@ void UMaterialInstance::GetBasePropertyOverridesHash(FSHAHash& OutHash)const
 		bHasOverrides = true;
 	}
 
-	if (bHasOverrides)
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	FVxgiMaterialProperties BaseVxgiMaterialProperties = Mat->GetVxgiMaterialProperties();
+
+	auto UpdateHashWithBool = [&Hash](bool b) { Hash.Update((uint8*)&b, sizeof(uint8)); };
+
+	if (VxgiMaterialProperties.bVxgiConeTracingEnabled != BaseVxgiMaterialProperties.bVxgiConeTracingEnabled)
 	{
+		const FString HashString = TEXT("bOverride_IsVxgiConeTracingEnabled");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		UpdateHashWithBool(VxgiMaterialProperties.bVxgiConeTracingEnabled);
+		bHasOverrides = true;
+	}
+
+	if (VxgiMaterialProperties.bUsedWithVxgiVoxelization != BaseVxgiMaterialProperties.bUsedWithVxgiVoxelization)
+	{
+		const FString HashString = TEXT("bOverride_IsUsedWithVxgiVoxelization");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		UpdateHashWithBool(VxgiMaterialProperties.bUsedWithVxgiVoxelization);
+		bHasOverrides = true;
+	}
+
+	if (VxgiMaterialProperties.bVxgiOmniDirectional != BaseVxgiMaterialProperties.bVxgiOmniDirectional)
+	{
+		const FString HashString = TEXT("bOverride_IsVxgiOmniDirectional");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		UpdateHashWithBool(VxgiMaterialProperties.bVxgiOmniDirectional);
+		bHasOverrides = true;
+	}
+
+	if (VxgiMaterialProperties.bVxgiProportionalEmittance != BaseVxgiMaterialProperties.bVxgiProportionalEmittance)
+	{
+		const FString HashString = TEXT("bOverride_IsVxgiProportionalEmittance");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		UpdateHashWithBool(VxgiMaterialProperties.bVxgiProportionalEmittance);
+		bHasOverrides = true;
+	}
+
+	if (VxgiMaterialProperties.bVxgiAllowTesselationDuringVoxelization != BaseVxgiMaterialProperties.bVxgiAllowTesselationDuringVoxelization)
+	{
+		const FString HashString = TEXT("bOverride_VxgiAllowTesselationDuringVoxelization");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		UpdateHashWithBool(VxgiMaterialProperties.bVxgiAllowTesselationDuringVoxelization);
+		bHasOverrides = true;
+	}
+
+	if (FMath::Abs(VxgiMaterialProperties.VxgiVoxelizationThickness - BaseVxgiMaterialProperties.VxgiVoxelizationThickness) > SMALL_NUMBER)
+	{
+		const FString HashString = TEXT("bOverride_GetVxgiVoxelizationThickness");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		Hash.Update((uint8*)&VxgiMaterialProperties.VxgiVoxelizationThickness, sizeof(VxgiMaterialProperties.VxgiVoxelizationThickness));
+		bHasOverrides = true;
+	}
+
+	if (!(VxgiMaterialProperties.VxgiOpacityNoiseScaleBias - BaseVxgiMaterialProperties.VxgiOpacityNoiseScaleBias).IsNearlyZero(SMALL_NUMBER))
+	{
+		const FString HashString = TEXT("bOverride_GetVxgiOpacityNoiseScaleBias");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		Hash.Update((uint8*)&VxgiMaterialProperties.VxgiOpacityNoiseScaleBias, sizeof(VxgiMaterialProperties.VxgiOpacityNoiseScaleBias));
+		bHasOverrides = true;
+	}
+
+	if (VxgiMaterialProperties.bVxgiCoverageSupersampling != VxgiMaterialProperties.bVxgiCoverageSupersampling)
+	{
+		const FString HashString = TEXT("bOverride_VxgiCoverageSupersampling");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		UpdateHashWithBool(VxgiMaterialProperties.bVxgiCoverageSupersampling);
+		bHasOverrides = true;
+	}
+
+	if (VxgiMaterialProperties.VxgiMaterialSamplingRate != BaseVxgiMaterialProperties.VxgiMaterialSamplingRate)
+	{
+		const FString HashString = TEXT("bOverride_GetVxgiMaterialSamplingRate");
+		Hash.UpdateWithString(*HashString, HashString.Len());
+		uint8 VxgiMaterialSamplingRate = VxgiMaterialProperties.VxgiMaterialSamplingRate;
+		Hash.Update(&VxgiMaterialSamplingRate, sizeof(VxgiMaterialSamplingRate));
+		bHasOverrides = true;
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
+
+ 	if (bHasOverrides)
+ 	{
 		Hash.Final();
 		Hash.GetHash(&OutHash.Hash[0]);
 	}
@@ -2816,6 +2952,28 @@ void UMaterialInstance::GetBasePropertyOverridesHash(FSHAHash& OutHash)const
 bool UMaterialInstance::HasOverridenBaseProperties()const
 {
 	check(IsInGameThread());
+
+	// NVCHANGE_BEGIN: Add VXGI
+#if WITH_GFSDK_VXGI
+	if (Parent)
+	{
+		FVxgiMaterialProperties BaseVxgiMaterialProperties = Parent->GetVxgiMaterialProperties();
+
+		if (VxgiMaterialProperties.bVxgiConeTracingEnabled != BaseVxgiMaterialProperties.bVxgiConeTracingEnabled ||
+			VxgiMaterialProperties.bUsedWithVxgiVoxelization != BaseVxgiMaterialProperties.bUsedWithVxgiVoxelization ||
+			VxgiMaterialProperties.bVxgiOmniDirectional != BaseVxgiMaterialProperties.bVxgiOmniDirectional ||
+			VxgiMaterialProperties.bVxgiProportionalEmittance != BaseVxgiMaterialProperties.bVxgiProportionalEmittance ||
+			VxgiMaterialProperties.bVxgiAllowTesselationDuringVoxelization != BaseVxgiMaterialProperties.bVxgiAllowTesselationDuringVoxelization ||
+			FMath::Abs(VxgiMaterialProperties.VxgiVoxelizationThickness - BaseVxgiMaterialProperties.VxgiVoxelizationThickness) > SMALL_NUMBER ||
+			!(VxgiMaterialProperties.VxgiOpacityNoiseScaleBias - BaseVxgiMaterialProperties.VxgiOpacityNoiseScaleBias).IsNearlyZero(SMALL_NUMBER) ||
+			VxgiMaterialProperties.bVxgiCoverageSupersampling != VxgiMaterialProperties.bVxgiCoverageSupersampling ||
+			VxgiMaterialProperties.VxgiMaterialSamplingRate != BaseVxgiMaterialProperties.VxgiMaterialSamplingRate)
+		{
+			return true;
+		}
+	}
+#endif
+	// NVCHANGE_END: Add VXGI
 
 	const UMaterial* Material = GetMaterial();
 	if (Parent && Material && Material->bUsedAsSpecialEngineMaterial == false &&

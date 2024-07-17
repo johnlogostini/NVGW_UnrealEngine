@@ -37,6 +37,35 @@ struct ENGINE_API FMaterialInstanceBasePropertyOverrides
 	UPROPERTY(EditAnywhere, Category = Material)
 	bool bOverride_TwoSided;
 
+	// NVCHANGE_BEGIN: Add VXGI
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiConeTracingEnabled : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_UsedWithVxgiVoxelization : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiAllowTesselationDuringVoxelization : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiOmniDirectional : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiProportionalEmittance : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiCoverageSupersampling : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiMaterialSamplingRate : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiOpacityNoiseScaleBias : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material)
+	uint32 bOverride_VxgiVoxelizationThickness : 1;
+	// NVCHANGE_END: Add VXGI
+
 	/** If BlendMode is BLEND_Masked, the surface is not rendered where OpacityMask < OpacityMaskClipValue. */
 	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_OpacityMaskClipValue", NoSpinbox = true))
 	float OpacityMaskClipValue;
@@ -60,6 +89,35 @@ struct ENGINE_API FMaterialInstanceBasePropertyOverrides
 	/** Whether the material should cast shadows as masked even though it has a translucent blend mode. */
 	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_CastShadowAsMasked", NoSpinbox = true))
 	uint32 bCastDynamicShadowAsMasked:1;
+
+	// NVCHANGE_BEGIN: Add VXGI
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_VxgiConeTracingEnabled"))
+	uint32 bVxgiConeTracingEnabled : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_UsedWithVxgiVoxelization"))
+	uint32 bUsedWithVxgiVoxelization : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_VxgiAllowTesselationDuringVoxelization"))
+	uint32 bVxgiAllowTesselationDuringVoxelization : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_VxgiOmniDirectional"))
+	uint32 bVxgiOmniDirectional : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_VxgiProportionalEmittance"))
+	uint32 bVxgiProportionalEmittance : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_VxgiCoverageSupersampling"))
+	uint32 bVxgiCoverageSupersampling : 1;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_VxgiMaterialSamplingRate"))
+	TEnumAsByte<enum EVxgiMaterialSamplingRate> VxgiMaterialSamplingRate;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (editcondition = "bOverride_VxgiOpacityNoiseScaleBias"))
+	FVector2D VxgiOpacityNoiseScaleBias;
+
+	UPROPERTY(EditAnywhere, Category = Material, meta = (ClampMin = "0.0", ClampMax = "2.0", editcondition = "bOverride_VxgiVoxelizationThickness"))
+	float VxgiVoxelizationThickness;
+	// NVCHANGE_END: Add VXGI
 
 	FMaterialInstanceBasePropertyOverrides();
 

@@ -87,8 +87,11 @@
 #include "AssetTypeActions/AssetTypeActions_TouchInterface.h"
 #include "AssetTypeActions/AssetTypeActions_VectorFieldAnimated.h"
 #include "AssetTypeActions/AssetTypeActions_VectorFieldStatic.h"
-#include "AssetTypeActions/AssetTypeActions_World.h"
-#include "SDiscoveringAssetsDialog.h"
+#include "AssetTypeActions/AssetTypeActions_World.h"// @third party code - BEGIN HairWorks
+#include "AssetTypeActions/AssetTypeActions_HairWorks.h"
+// @third party code - END HairWorks// WaveWorks Start
+#include "AssetTypeActions/AssetTypeActions_WaveWorks.h"
+// WaveWorks End#include "SDiscoveringAssetsDialog.h"
 #include "AssetFixUpRedirectors.h"
 #include "ObjectTools.h"
 #include "PackageTools.h"
@@ -109,6 +112,12 @@
 #include "DlgPickPath.h"
 #include "FeedbackContext.h"
 #include "BusyCursor.h"
+
+#if WITH_FLEX
+#include "AssetTypeActions/AssetTypeActions_FlexContainer.h"
+#include "AssetTypeActions/AssetTypeActions_FlexFluidSurface.h"
+#endif
+
 
 #define LOCTEXT_NAMESPACE "AssetTools"
 
@@ -206,8 +215,14 @@ UAssetToolsImpl::UAssetToolsImpl(const FObjectInitializer& ObjectInitializer)
 	RegisterAssetTypeActions(MakeShareable(new FAssetTypeActions_VectorFieldAnimated));
 	RegisterAssetTypeActions(MakeShareable(new FAssetTypeActions_VectorFieldStatic));
 	RegisterAssetTypeActions(MakeShareable(new FAssetTypeActions_World));
-
-	// Note: Please don't add any more actions here!  They belong in an editor-only module that is more tightly
+	// @third party code - BEGIN HairWorks
+	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_HairWorks));
+	// @third party code - END HairWorks
+	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_FlexContainer));
+	RegisterAssetTypeActions( MakeShareable(new FAssetTypeActions_FlexFluidSurface));
+	// WaveWorks Start
+	RegisterAssetTypeActions(MakeShareable(new FAssetTypeActions_WaveWorks));
+	// WaveWorks End	// Note: Please don't add any more actions here!  They belong in an editor-only module that is more tightly
 	// coupled to your new system, and you should not create a dependency on your new system from AssetTools.
 }
 

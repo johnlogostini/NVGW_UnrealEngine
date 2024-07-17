@@ -88,6 +88,12 @@ THIRD_PARTY_INCLUDES_END
 
 #endif // #if WITH_APEX
 
+#if WITH_FLEX
+#include "FLEX-1.1.0/include/NvFlex.h"
+#include "FLEX-1.1.0/include/NvFlexExt.h"
+#include "FLEX-1.1.0/include/NvFlexDevice.h"
+#endif // #if WITH_FLEX
+
 #if PLATFORM_XBOXONE
 	#pragma pack(pop)
 #elif PLATFORM_WINDOWS
