@@ -321,6 +321,9 @@ BuildGraph.Automation.xml
 Engine/Binaries/DotNET/UnrealBuildTool.xml
 Engine/Binaries/DotNET/AutomationScripts/BuildGraph.Automation.xml
 
+# Ignore version files in the Engine/Binaries directory created by UBT
+/Engine/Binaries/**/*.version
+
 # Ignore content folders
 Content/
 
@@ -412,3 +415,5 @@ Saved/
 !/Engine/Binaries/ThirdParty/WaveWorks/**
 
 !/Engine/Binaries/ThirdParty/PhysX/FLEX-1.1.0/**
+# Ignore VS / VS Code settings directory
+.vs
