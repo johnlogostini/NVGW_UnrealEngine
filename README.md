@@ -20,7 +20,7 @@ Here are combined all possible Nvidia Gameworks technologies in one Unreal Engin
 
 ### NVIDIA Blast
 
-![Alt text](BlastPluginSample/BlastImage.png?raw=true "Nvidia Blast")
+![Alt text](BlastImage.png?raw=true "Nvidia Blast")
 
 [Blast](https://github.com/NVIDIAGameWorks/Blast) is a NVIDIA GameWorks destruction library. It was fully integrated in UE4 as a separate plugin.
 
@@ -32,7 +32,7 @@ For more information and a quick start tutorial go to
 
 ### NVIDIA Flex
 
-![Alt text](FlexProject/Documentation/_images/FlexImage.jpg?raw=true "Nvidia Flex")
+![Alt text](FlexImage.jpg?raw=true "Nvidia Flex")
 
 [Flex](https://github.com/NVIDIAGameWorks/Flex) is a GPU-based particle simulation library that supports fluids, clothing, solids, ropes, and more. The UE4 integration adds new actors and components
 to Unreal that can be used add more advanced dynamics to your game.
@@ -53,7 +53,7 @@ Not all the Flex features are exposed in Unreal yet, but we're continuing work o
 
 ### NVIDIA Flow
 
-![Alt text](NvFlowPluginSamples/FlowImage.png?raw=true "Nvidia Flow")
+![Alt text](FlowImage.png?raw=true "Nvidia Flow")
 
 Flow is a adaptive sparse voxel fluid simulation library for real-time applications.
 
@@ -64,7 +64,7 @@ NvFlowSamplesVR is configured to use the forward renderer with MSAA, and include
 
 ### NVIDIA HairWorks
 
-![Alt text](HairWorks_Project/HairWorksImage.jpg?raw=true "Nvidia HairWorks")
+![Alt text](HairWorksImage.jpg?raw=true "Nvidia HairWorks")
 
 NVIDIA HairWorks enables advanced simulation and rendering techniques for richer visual appeal and provides a deeply immersive experience. HairWorks is the culmination of over 8 years of R&D and harnessed into creating a versatile pipeline for a variety of character designs.
 
