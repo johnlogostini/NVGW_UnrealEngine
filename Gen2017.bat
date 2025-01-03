@@ -1,1 +1,0 @@
-call GenerateProjectFiles.bat -2017
