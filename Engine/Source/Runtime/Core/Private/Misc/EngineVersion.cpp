@@ -176,14 +176,12 @@ FString FEngineVersion::ToString(EVersionComponent LastComponent) const
 #if WITH_GFSDK_VXGI
 			else
 			{
-				Result += FString(TEXT("+VXGI-") TEXT(VXGI_VERSION_STRING));
+				Result += FString(TEXT(" NVIDIA GameWorks"));
 			}
 #endif
 			// NVCHANGE_END: Add VXGI
 		}
-	}
-	Result += FString(TEXT("-custom"));
-	return Result;
+	}	return Result;
 }
 
 bool FEngineVersion::Parse(const FString &Text, FEngineVersion &OutVersion)
